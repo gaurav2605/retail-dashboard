@@ -11,10 +11,7 @@ st.set_page_config(page_title="Supercenter Dashboard", layout="wide", initial_si
 
 st.markdown("""
 <style>
-    /* Global Typography & Spacing */
     body { font-family: 'Inter', 'Segoe UI', sans-serif; background-color: #f8f9fa; }
-    
-    /* Main Banner */
     .main-banner {
         background-color: #0071CE; padding: 25px 35px; border-radius: 12px; margin-bottom: 25px; 
         color: white; box-shadow: 0 4px 15px rgba(0, 113, 206, 0.2);
@@ -24,22 +21,20 @@ st.markdown("""
     .main-banner p { color: #FFC220; margin: 5px 0 0 0; font-size: 16px; font-weight: 500; }
     .date-badge { background-color: #FFC220; color: #004c8c; padding: 8px 24px; border-radius: 50px; font-weight: 800; font-size: 15px; }
     
-    /* KPI Grid - Bulletproof layout to prevent empty boxes */
     .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 30px; }
     .kpi-card { 
         background-color: #ffffff; border-radius: 10px; padding: 25px 20px; text-align: center; 
-        box-shadow: 0 2px 8px rgba(0,0,0,0.04); border: 1px solid #f0f0f0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.04); border: 1px solid #f0f0f0; transition: transform 0.2s;
     }
+    .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
     .kpi-title { color: #888888; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
     .kpi-value { color: #0071CE; font-size: 32px; font-weight: 800; }
     
-    /* Alerts */
     .alert-box { background-color: #fff9e6; border-left: 6px solid #FFC107; padding: 16px 20px; border-radius: 8px; margin-bottom: 20px; color: #856404; font-weight: 500;}
     .critical-box { background-color: #fff0f1; border-left: 6px solid #DC3545; padding: 16px 20px; border-radius: 8px; margin-bottom: 20px; color: #721C24; font-weight: 500;}
     
-    /* Hide Streamlit UI cruft */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
+    .content-card { background-color: #ffffff; border-radius: 12px; padding: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); border: 1px solid #f0f0f0; margin-bottom: 30px; height: 100%;}
+    #MainMenu {visibility: hidden;} footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -59,28 +54,16 @@ PRODUCT_DB = {
 }
 
 # --- 3. HELPER FUNCTIONS ---
-def generate_strategy(item_a, item_b, lift, conf, supp):
+def generate_strategy(item_a, item_b, lift, conf, supp, missed_profit):
     conf_pct = round(conf * 100)
     if conf >= 0.95:
-        return f"🏷️ DISCOUNT {item_a}: Drive full-price sales of {item_b} (⭐ Star). 100% of {item_a} buyers also buy {item_b}."
+        return f"🏷️ DISCOUNT {item_a}: Drive sales of {item_b}. 100% of {item_a} buyers buy {item_b}."
     elif lift > 1.5 and conf >= 0.6:
-        return f"📦 BUNDLE: Place {item_a} & {item_b} on the same endcap. {conf_pct}% chance they are bought together."
+        return f"📦 BUNDLE: Capture ${missed_profit:,.0f} in lost profit by putting {item_b} next to {item_a}."
     else:
-        return f"🚶 SEPARATE: Place at opposite ends. Appears in {round(supp*100)}% of checkouts; forces foot traffic."
+        return f"🚶 SEPARATE: Place far apart. Appears in {round(supp*100)}% of carts; forces store navigation."
 
-def detect_anomalies(df):
-    if 'Date' not in df.columns: return None
-    try:
-        df['Date'] = pd.to_datetime(df['Date'])
-        weekend_txns = df[df['Date'].dt.weekday >= 5].shape[0]
-        weekday_txns = df[df['Date'].dt.weekday < 5].shape[0]
-        if (weekend_txns / 2) > (weekday_txns / 5) * 1.5:
-            return "📈 ANOMALY DETECTED: Weekend checkout volume is spiking over 50% above weekday averages. Ensure front-end registers are fully staffed on Saturdays."
-    except:
-        pass
-    return None
-
-def process_data(df, min_supp, optimize_for):
+def process_data(df, min_supp, optimize_for, total_txns):
     transactions = df['Items'].astype(str).str.split(',').apply(lambda x: [i.strip() for i in x])
     te = TransactionEncoder()
     te_ary = te.fit(transactions).transform(transactions)
@@ -98,10 +81,13 @@ def process_data(df, min_supp, optimize_for):
     rules['Item_A'] = rules['antecedents'].apply(lambda x: list(x)[0])
     rules['Item_B'] = rules['consequents'].apply(lambda x: list(x)[0])
     
-    rules['Pair_Profit'] = rules.apply(
-        lambda row: PRODUCT_DB.get(row['Item_A'], {}).get('profit', 0) + PRODUCT_DB.get(row['Item_B'], {}).get('profit', 0), 
-        axis=1
-    )
+    rules['Pair_Profit'] = rules.apply(lambda row: PRODUCT_DB.get(row['Item_A'], {}).get('profit', 0) + PRODUCT_DB.get(row['Item_B'], {}).get('profit', 0), axis=1)
+    
+    # Advanced Insight: Calculate Money Left on the Table
+    # If a customer buys A, but forgets B, how much profit did we miss?
+    rules['Item_A_Txns'] = (rules['support'] / rules['confidence']) * total_txns
+    rules['Missed_Txns'] = rules['Item_A_Txns'] * (1 - rules['confidence'])
+    rules['Missed_Profit'] = rules.apply(lambda row: row['Missed_Txns'] * PRODUCT_DB.get(row['Item_B'], {}).get('profit', 0), axis=1)
     
     rules['Pair_ID'] = rules.apply(lambda row: frozenset([row['Item_A'], row['Item_B']]), axis=1)
     rules = rules.sort_values(by='confidence', ascending=False).drop_duplicates(subset=['Pair_ID'], keep='first')
@@ -111,7 +97,7 @@ def process_data(df, min_supp, optimize_for):
     else:
         rules = rules.sort_values(by='support', ascending=False)
         
-    rules['Strategy'] = rules.apply(lambda row: generate_strategy(row['Item_A'], row['Item_B'], row['lift'], row['confidence'], row['support']), axis=1)
+    rules['Strategy'] = rules.apply(lambda row: generate_strategy(row['Item_A'], row['Item_B'], row['lift'], row['confidence'], row['support'], row['Missed_Profit']), axis=1)
     return rules
 
 # --- 4. DATA INGESTION & SIDEBAR ---
@@ -139,11 +125,18 @@ best_seller = pd.Series(all_items).mode()[0] if all_items else "N/A"
 total_revenue = sum([PRODUCT_DB.get(i, {}).get('profit', 1.00) for i in all_items])
 
 busiest_day = "N/A"
+traffic_df = pd.DataFrame()
 if 'Date' in df.columns:
     try:
-        busiest_day = pd.to_datetime(df['Date']).dt.day_name().mode()[0]
-    except:
-        pass
+        df['Date'] = pd.to_datetime(df['Date'])
+        busiest_day = df['Date'].dt.day_name().mode()[0]
+        traffic_df = df['Date'].dt.day_name().value_counts().reset_index()
+        traffic_df.columns = ['Day', 'Transactions']
+        # Order days correctly
+        cats = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        traffic_df['Day'] = pd.Categorical(traffic_df['Day'], categories=cats, ordered=True)
+        traffic_df = traffic_df.sort_values('Day')
+    except: pass
 
 # --- 5. MAIN DASHBOARD UI ---
 dynamic_month = datetime.datetime.now().strftime("%B %Y")
@@ -158,20 +151,27 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Alerts Area
-anomaly = detect_anomalies(df)
-if anomaly:
-    st.markdown(f'<div class="alert-box">{anomaly}</div>', unsafe_allow_html=True)
+# 🎛️ IN-PAGE CONTROLS
+st.markdown("### 🎛️ Dashboard Controls")
+control_col1, control_col2 = st.columns(2)
+with control_col1:
+    optimization = st.radio("Optimize floor layout for:", ["📦 Sales Volume", "💰 Maximum Profit"], horizontal=True)
+with control_col2:
+    target_product = st.selectbox("Targeted Inventory Filter (Focus on a specific product):", ["Show All Products"] + sorted(list(set(all_items))))
+st.divider()
 
-rules_df = process_data(df, sensitivity, "📦 Sales Volume") # Base calculation to check inventory
+rules_df = process_data(df, sensitivity, optimization, total_txns)
+if target_product != "Show All Products" and not rules_df.empty:
+    rules_df = rules_df[(rules_df['Item_A'] == target_product) | (rules_df['Item_B'] == target_product)]
 
+# Alerts
 if not rules_df.empty:
-    for i, row in rules_df.head(5).iterrows():
+    for i, row in rules_df.head(3).iterrows():
         stock_b = PRODUCT_DB.get(row['Item_B'], {}).get('stock', 999)
         if stock_b < 20:
             st.markdown(f'<div class="critical-box">⚠️ <strong>INVENTORY CRITICAL:</strong> Only {stock_b} units of {row["Item_B"]} remaining. Restock immediately to capture guaranteed follow-on sales from {row["Item_A"]}.</div>', unsafe_allow_html=True)
 
-# KPI Row using CSS Grid
+# KPI Row
 st.markdown(f"""
 <div class="kpi-grid">
     <div class="kpi-card"><div class="kpi-title">🧾 Transactions Analyzed</div><div class="kpi-value">{total_txns:,}</div></div>
@@ -182,86 +182,64 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# --- 6. INTEGRATED ON-PAGE CONTROLS ---
-st.markdown("### 🎛️ Dashboard Controls")
-control_col1, control_col2 = st.columns(2)
-
-with control_col1:
-    optimization = st.radio(
-        "Optimize floor layout for:",
-        ["📦 Sales Volume", "💰 Maximum Profit"],
-        horizontal=True
-    )
-
-with control_col2:
-    unique_products = sorted(list(set(all_items)))
-    target_product = st.selectbox(
-        "Targeted Inventory Filter (Select a product to view specific strategies):",
-        ["Show All Products"] + unique_products
-    )
-
-st.divider()
-
-# Re-process rules based on the on-page toggle
-rules_df = process_data(df, sensitivity, optimization)
-
-# Apply the Product Filter if one is selected
-if target_product != "Show All Products" and not rules_df.empty:
-    rules_df = rules_df[(rules_df['Item_A'] == target_product) | (rules_df['Item_B'] == target_product)]
-
-# --- 7. CHARTS & TABLES ---
+# --- 6. ADVANCED INSIGHTS (Charts) ---
 if not rules_df.empty:
-    col_chart, col_takeaways = st.columns([1.5, 1])
+    col_chart, col_traffic = st.columns([1.5, 1])
     
     with col_chart:
+        st.markdown('<div class="content-card">', unsafe_allow_html=True)
         chart_title_metric = "Volume" if optimization == "📦 Sales Volume" else "Profit"
-        st.markdown(f"#### Top 5 Product Pairings (Ranked by {chart_title_metric})")
+        st.markdown(f"#### Top 5 Product Pairings <span style='font-size: 14px; color: #888; font-weight: normal;'>(Ranked by {chart_title_metric})</span>", unsafe_allow_html=True)
         
         chart_data = rules_df.head(5).copy()
         chart_data['Pair Name'] = chart_data['Item_A'] + " & " + chart_data['Item_B']
-        
-        if optimization == "💰 Maximum Profit":
-            x_col = 'Pair_Profit'
-        else:
-            chart_data['% of Checkouts'] = chart_data['support'] * 100
-            x_col = '% of Checkouts'
+        x_col = 'Pair_Profit' if optimization == "💰 Maximum Profit" else 'support'
         
         base = alt.Chart(chart_data).encode(
             x=alt.X(f'{x_col}:Q', axis=None),
             y=alt.Y('Pair Name:N', sort='-x', title='', axis=alt.Axis(labelFontSize=13, labelColor='#555', tickSize=0, domain=False))
         )
-        bar = base.mark_bar(color='#0071CE', cornerRadiusEnd=4, height=35)
+        bar = base.mark_bar(color='#0071CE', cornerRadiusEnd=4, height=32)
         text = base.mark_text(align='left', baseline='middle', dx=8, fontSize=13, fontWeight='bold', color='#0071CE').encode(
-            text=alt.Text(f'{x_col}:Q', format='$.2f' if x_col == 'Pair_Profit' else '.1f')
+            text=alt.Text(f'{x_col}:Q', format='$.2f' if x_col == 'Pair_Profit' else '.2%')
         )
-        st.altair_chart((bar + text).properties(height=280), use_container_width=True)
+        st.altair_chart((bar + text).properties(height=260), use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    with col_takeaways:
-        st.markdown("#### Executive Takeaways")
-        takeaways = ""
-        for i, row in rules_df.head(3).iterrows():
-            action_text = row['Strategy'].split(':')[0].strip()
-            takeaways += f"<li style='margin-bottom: 12px; font-size: 15px; color: #444; line-height: 1.5;'>Customers buying <strong>{row['Item_A']}</strong> heavily drive sales of <strong>{row['Item_B']}</strong>. Action: {action_text}</li>"
-        
-        st.markdown(f"<ul style='padding-left: 20px;'>{takeaways}</ul>", unsafe_allow_html=True)
+    with col_traffic:
+        st.markdown('<div class="content-card">', unsafe_allow_html=True)
+        st.markdown("#### 👥 Store Traffic & Staffing (By Day)")
+        if not traffic_df.empty:
+            traffic_chart = alt.Chart(traffic_df).mark_bar(color='#FFC220', cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+                x=alt.X('Day:N', title='', sort=cats, axis=alt.Axis(labelAngle=-45, labelColor='#555')),
+                y=alt.Y('Transactions:Q', axis=None),
+                tooltip=['Day', 'Transactions']
+            ).properties(height=260)
+            st.altair_chart(traffic_chart, use_container_width=True)
+        else:
+            st.info("No date data available to generate traffic heatmap.")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("#### Complete Action Plan")
+    # ACTION PLAN
+    st.markdown('<div class="content-card">', unsafe_allow_html=True)
+    st.markdown("### 📋 Intelligent Action Plan")
+    st.caption("Strategies are dynamically calculated based on margin loss and checkout probability.")
+    
     display_cols = rules_df[['Item_A', 'Item_B', 'Strategy']].copy()
-    display_cols.columns = ['Driver Product', 'Partner Product', 'Recommended Execution Strategy']
+    display_cols.columns = ['Driver Product (Bought First)', 'Partner Product (Bought Second)', 'Recommended Execution Strategy']
     st.dataframe(display_cols, hide_index=True, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    with st.expander("🔍 Advanced Analytics (For Data Teams)"):
+    with st.expander("🔍 Advanced Analytics (Money Left on the Table)"):
         st.markdown("""
-        * **Support %:** Baseline frequency across *all* checkouts.
-        * **Confidence %:** When Product A is purchased, the likelihood Product B is also purchased.
-        * **Lift:** Correlation strength. A Lift > 1.0 indicates a positive, intentional pairing beyond random chance.
+        * **Missed Checkouts:** The estimated number of people who bought the Driver Product, but left without buying the Partner Product.
+        * **Missed Profit:** The exact dollar amount lost by not bundling these items effectively.
         """)
-        
-        analyst_df = rules_df[['Item_A', 'Item_B', 'support', 'confidence', 'lift']].copy()
-        analyst_df['support'] = (analyst_df['support'] * 100).round(1).astype(str) + '%'
+        analyst_df = rules_df[['Item_A', 'Item_B', 'confidence', 'Missed_Txns', 'Missed_Profit']].copy()
         analyst_df['confidence'] = (analyst_df['confidence'] * 100).round(1).astype(str) + '%'
-        analyst_df['lift'] = analyst_df['lift'].round(2)
-        analyst_df.columns = ['Driver (A)', 'Partner (B)', 'Support %', 'Confidence %', 'Lift Factor']
+        analyst_df['Missed_Txns'] = analyst_df['Missed_Txns'].round(0).astype(int)
+        analyst_df['Missed_Profit'] = analyst_df['Missed_Profit'].apply(lambda x: f"${x:,.2f}")
+        analyst_df.columns = ['Driver (A)', 'Partner (B)', 'Checkout Probability', 'Missed Checkouts', 'Missed Profit ($)']
         st.dataframe(analyst_df, hide_index=True, use_container_width=True)
 else:
     st.info("ℹ️ No strong product associations found based on your current filters and sensitivity level.")
