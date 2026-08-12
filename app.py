@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
-import io
+import os
 import datetime
 from mlxtend.preprocessing import TransactionEncoder
 from mlxtend.frequent_patterns import apriori, association_rules
@@ -12,29 +12,21 @@ st.set_page_config(page_title="Supercenter Dashboard", layout="wide", initial_si
 st.markdown("""
 <style>
     .main-banner {
-        background-color: #0071CE;
-        padding: 30px;
-        border-radius: 8px;
-        margin-bottom: 20px;
-        color: white;
+        background-color: #0071CE; padding: 30px; border-radius: 8px; margin-bottom: 20px; color: white;
     }
-    .main-banner h1 {
-        color: white; margin: 0; font-family: 'Arial', sans-serif; font-size: 34px; display: flex; align-items: center;
-    }
+    .main-banner h1 { color: white; margin: 0; font-family: 'Arial', sans-serif; font-size: 34px; display: flex; align-items: center; }
     .kpi-container { display: flex; justify-content: space-between; gap: 15px; margin-bottom: 25px; }
     .kpi-card { background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; flex: 1; text-align: center; }
     .kpi-title { color: #666666; font-size: 14px; font-weight: 600; text-transform: uppercase; margin-bottom: 10px; }
     .kpi-value { color: #0071CE; font-size: 34px; font-weight: bold; }
-    
     .alert-box { background-color: #FFF3CD; border-left: 5px solid #FFC107; padding: 15px; border-radius: 4px; margin-bottom: 10px; color: #856404; font-weight: 500;}
     .critical-box { background-color: #F8D7DA; border-left: 5px solid #DC3545; padding: 15px; border-radius: 4px; margin-bottom: 30px; color: #721C24; font-weight: 500;}
 </style>
 """, unsafe_allow_html=True)
 
 # --- 2. INTERNAL DATABASE (Profit & Inventory) ---
-# Embedded to keep the manager's experience to a single file upload
 PRODUCT_DB = {
-    'Bread': {'profit': 0.75, 'stock': 12}, # Low stock to trigger alert
+    'Bread': {'profit': 0.75, 'stock': 12}, 
     'Butter': {'profit': 1.10, 'stock': 85},
     'Milk': {'profit': 0.50, 'stock': 150},
     'Diapers': {'profit': 6.00, 'stock': 200},
@@ -43,7 +35,8 @@ PRODUCT_DB = {
     'Cheese': {'profit': 4.00, 'stock': 90},
     'Eggs': {'profit': 0.80, 'stock': 60},
     'Coffee': {'profit': 3.50, 'stock': 110},
-    'Nutella': {'profit': 2.50, 'stock': 5} # Critical stock
+    'Nutella': {'profit': 2.50, 'stock': 5},
+    'Snacks': {'profit': 2.00, 'stock': 500}
 }
 
 # --- 3. HELPER FUNCTIONS ---
@@ -58,15 +51,14 @@ def generate_strategy(item_a, item_b, lift, conf, supp):
 
 def detect_anomalies(df):
     if 'Date' not in df.columns: return None
-    df['Date'] = pd.to_datetime(df['Date'])
-    
-    # Check if weekend transactions are disproportionately high
-    weekend_txns = df[df['Date'].dt.weekday >= 5].shape[0]
-    weekday_txns = df[df['Date'].dt.weekday < 5].shape[0]
-    
-    # Normalize by days (2 weekend days vs 5 weekdays)
-    if (weekend_txns / 2) > (weekday_txns / 5) * 1.5:
-        return "📈 ANOMALY DETECTED: Weekend checkout volume is spiking over 50% above weekday averages. Ensure front-end registers are fully staffed on Saturdays."
+    try:
+        df['Date'] = pd.to_datetime(df['Date'])
+        weekend_txns = df[df['Date'].dt.weekday >= 5].shape[0]
+        weekday_txns = df[df['Date'].dt.weekday < 5].shape[0]
+        if (weekend_txns / 2) > (weekday_txns / 5) * 1.5:
+            return "📈 ANOMALY DETECTED: Weekend checkout volume is spiking over 50% above weekday averages. Ensure front-end registers are fully staffed on Saturdays."
+    except:
+        pass
     return None
 
 def process_data(df, min_supp, optimize_for):
@@ -87,7 +79,6 @@ def process_data(df, min_supp, optimize_for):
     rules['Item_A'] = rules['antecedents'].apply(lambda x: list(x)[0])
     rules['Item_B'] = rules['consequents'].apply(lambda x: list(x)[0])
     
-    # Calculate Profitability for the Pair
     rules['Pair_Profit'] = rules.apply(
         lambda row: PRODUCT_DB.get(row['Item_A'], {}).get('profit', 0) + PRODUCT_DB.get(row['Item_B'], {}).get('profit', 0), 
         axis=1
@@ -96,7 +87,6 @@ def process_data(df, min_supp, optimize_for):
     rules['Pair_ID'] = rules.apply(lambda row: frozenset([row['Item_A'], row['Item_B']]), axis=1)
     rules = rules.sort_values(by='confidence', ascending=False).drop_duplicates(subset=['Pair_ID'], keep='first')
     
-    # 🔄 DYNAMIC SORTING BASED ON MANAGER TOGGLE
     if optimize_for == "💰 Maximum Profit":
         rules = rules.sort_values(by='Pair_Profit', ascending=False)
     else:
@@ -107,15 +97,16 @@ def process_data(df, min_supp, optimize_for):
 
 # --- 4. SIDEBAR ---
 with st.sidebar:
-    st.markdown("### 📥 Monthly Data Upload")
-    uploaded_file = st.file_uploader("Upload transactions_2000.csv", type="csv")
+    st.markdown("### 📥 Monthly Data Update")
+    st.caption("The dashboard automatically loads the data in your GitHub repository. Upload a file below only if you want to override it.")
+    uploaded_file = st.file_uploader("Override Transactions (CSV)", type="csv")
     
     st.divider()
     st.markdown("### 🎯 Strategy Focus")
     optimization = st.radio(
         "Generate floor layout based on:",
         ["📦 Sales Volume", "💰 Maximum Profit"],
-        help="Volume focuses on the most frequent purchases. Profit focuses on the highest margin pairings."
+        help="Volume focuses on most frequent purchases. Profit focuses on highest margin pairings."
     )
     
     st.divider()
@@ -124,8 +115,10 @@ with st.sidebar:
 # --- 5. DATA PROCESSING ---
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
+elif os.path.exists("transactions_2000.csv"):
+    df = pd.read_csv("transactions_2000.csv")
 else:
-    st.info("👈 Please upload the generated 'transactions_2000.csv' in the sidebar.")
+    st.error("⚠️ 'transactions_2000.csv' not found in your GitHub repository. Please upload a file to continue.")
     st.stop()
 
 total_txns = len(df)
@@ -155,14 +148,12 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 🚨 AI ALERT SECTION
 anomaly = detect_anomalies(df)
 if anomaly:
     st.markdown(f'<div class="alert-box">{anomaly}</div>', unsafe_allow_html=True)
 
 rules_df = process_data(df, sensitivity, optimization)
 
-# Inventory Alerts based on top strategies
 if not rules_df.empty:
     for i, row in rules_df.head(5).iterrows():
         stock_b = PRODUCT_DB.get(row['Item_B'], {}).get('stock', 999)
@@ -186,11 +177,9 @@ if not rules_df.empty:
     
     if optimization == "💰 Maximum Profit":
         x_col = 'Pair_Profit'
-        chart_title = 'Combined Profit per Checkout ($)'
     else:
         chart_data['% of Checkouts'] = chart_data['support'] * 100
         x_col = '% of Checkouts'
-        chart_title = 'Percentage of Total Checkouts'
     
     base = alt.Chart(chart_data).encode(
         x=alt.X(f'{x_col}:Q', axis=None),
@@ -206,3 +195,5 @@ if not rules_df.empty:
     display_cols = rules_df[['Item_A', 'Item_B', 'Strategy']].copy()
     display_cols.columns = ['Driver Product', 'Partner Product', 'Mathematically Backed Strategy']
     st.dataframe(display_cols, hide_index=True, use_container_width=True)
+else:
+    st.warning("No rules found at this sensitivity level. Try lowering the 'Rule Sensitivity' slider in the sidebar.")
