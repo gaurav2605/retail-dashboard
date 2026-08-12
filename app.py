@@ -22,12 +22,15 @@ st.markdown("""
         color: white;
         margin: 0;
         font-family: 'Arial', sans-serif;
-        font-size: 36px;
+        font-size: 34px;
+        display: flex;
+        align-items: center;
+        gap: 15px;
     }
     .main-banner p {
         color: #FFC220;
-        margin: 5px 0 0 0;
-        font-size: 20px;
+        margin: 8px 0 0 0;
+        font-size: 18px;
         font-weight: 600;
     }
     .kpi-container {
@@ -43,11 +46,11 @@ st.markdown("""
         padding: 20px;
         flex: 1;
         text-align: center;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     .kpi-title {
         color: #666666;
-        font-size: 15px;
+        font-size: 14px;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.5px;
@@ -55,7 +58,7 @@ st.markdown("""
     }
     .kpi-value {
         color: #0071CE;
-        font-size: 32px;
+        font-size: 34px;
         font-weight: bold;
     }
     .takeaways-box {
@@ -67,13 +70,13 @@ st.markdown("""
     }
     .takeaways-box h3 {
         margin-top: 0;
-        color: #333;
+        color: #333333;
         font-size: 18px;
     }
     .takeaways-box ul {
         margin-bottom: 0;
         font-size: 16px;
-        color: #444;
+        color: #444444;
     }
     .takeaways-box li {
         margin-bottom: 8px;
@@ -157,8 +160,8 @@ with st.sidebar:
     uploaded_file = st.file_uploader("Upload Monthly Receipts (CSV)", type="csv")
     
     st.markdown("""
-    <div style='background-color: #e6f2ff; padding: 10px; border-radius: 5px; font-size: 13px; color: #004c8c; margin-bottom: 20px;'>
-        <strong>Expected Columns:</strong> <code>Transaction_ID</code>, <code>Items</code> (comma-separated).<br>
+    <div style='background-color: #ffffff; padding: 12px; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 13px; color: #333333; margin-bottom: 20px;'>
+        <strong>Expected Columns:</strong><br><code>Transaction_ID</code>, <code>Items</code> (comma-separated).<br>
         <em>Optional:</em> <code>Price</code> or <code>Amount</code>.
     </div>
     """, unsafe_allow_html=True)
@@ -172,7 +175,6 @@ with st.sidebar:
     )
 
 # --- 5. DATA LOADING & KPI CALCULATION ---
-is_sample_data = False
 if uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file)
@@ -183,7 +185,6 @@ if uploaded_file is not None:
         st.error(f"Error reading file: {e}")
         st.stop()
 else:
-    is_sample_data = True
     df = pd.read_csv(io.StringIO(SAMPLE_CSV))
 
 total_txns = len(df)
@@ -202,13 +203,13 @@ else:
 # --- 6. MAIN DASHBOARD UI ---
 st.markdown("""
 <div class="main-banner">
-    <h1>🛒 Supercenter Strategy Dashboard</h1>
+    <h1>
+        <img src="https://upload.wikimedia.org/wikipedia/commons/c/ca/Walmart_logo.svg" height="40" alt="Walmart Logo">
+        Strategy Dashboard
+    </h1>
     <p>One page. What happened this month, and what to do about it.</p>
 </div>
 """, unsafe_allow_html=True)
-
-if is_sample_data:
-    st.info("ℹ️ **Showing Sample Data.** Upload your own store's CSV in the sidebar to see your metrics.")
 
 st.markdown(f"""
 <div class="kpi-container">
@@ -243,13 +244,27 @@ else:
     chart_data['Pair Name'] = chart_data['Item_A'] + " & " + chart_data['Item_B']
     chart_data['% of Total Checkouts'] = chart_data['support'] * 100
     
-    bar_chart = alt.Chart(chart_data).mark_bar(color='#0071CE', cornerRadiusEnd=4, height=30).encode(
-        x=alt.X('% of Total Checkouts:Q', title='Percentage of Total Checkouts'),
-        y=alt.Y('Pair Name:N', sort='-x', title='', axis=alt.Axis(labelFontSize=13)),
-        tooltip=[alt.Tooltip('Pair Name', title='Pairing'), alt.Tooltip('% of Total Checkouts', format='.1f', title='Checkouts %')]
-    ).properties(height=250)
-    
-    st.altair_chart(bar_chart, use_container_width=True)
+    # Ultra-minimalist modern chart: No gridlines, direct labeling
+    base = alt.Chart(chart_data).encode(
+        x=alt.X('% of Total Checkouts:Q', axis=None),
+        y=alt.Y('Pair Name:N', sort='-x', title='', axis=alt.Axis(labelFontSize=14, labelColor='#333333', tickSize=0, domain=False))
+    )
+
+    bar = base.mark_bar(color='#0071CE', cornerRadiusEnd=4, height=35)
+
+    text = base.mark_text(
+        align='left', 
+        baseline='middle', 
+        dx=5, 
+        fontSize=14, 
+        fontWeight='bold', 
+        color='#0071CE'
+    ).encode(
+        text=alt.Text('% of Total Checkouts:Q', format='.1f')
+    )
+
+    final_chart = (bar + text).properties(height=280)
+    st.altair_chart(final_chart, use_container_width=True)
 
     st.markdown("### 💡 Key Takeaways")
     takeaways = ""
