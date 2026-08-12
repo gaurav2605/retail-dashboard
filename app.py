@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 import io
+import datetime
 from mlxtend.preprocessing import TransactionEncoder
 from mlxtend.frequent_patterns import apriori, association_rules
 
@@ -28,7 +29,6 @@ st.markdown("""
         font-size: 34px;
         display: flex;
         align-items: center;
-        gap: 15px;
     }
     .main-banner p {
         color: #FFC220;
@@ -113,7 +113,6 @@ T120,"Milk,Diapers,Beer"
 
 # --- 3. HELPER FUNCTIONS ---
 def generate_strategy(item_a, item_b, lift, conf, supp):
-    """Generates a mathematically backed, specific business strategy."""
     conf_pct = round(conf * 100)
     supp_pct = round(supp * 100)
     lift_val = round(lift, 2)
@@ -208,15 +207,21 @@ else:
     kpi4_value = f"{len(set(all_items))}"
 
 # --- 6. MAIN DASHBOARD UI ---
-st.markdown("""
+current_time = datetime.datetime.now()
+dynamic_month = current_time.strftime("%B %Y")
+
+banner_html = f"""
 <div class="main-banner">
     <h1>
-        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Walmart_logo.svg/512px-Walmart_logo.svg.png" height="40" alt="Walmart Logo" style="vertical-align: middle;">
-        Strategy Dashboard
+        <svg width="45" height="45" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-right: 12px;">
+          <path d="M12 0l1.4 7.6 6.8-3.4-3.4 6.8 7.6 1.4-7.6 1.4 3.4 6.8-6.8-3.4-1.4 7.6-1.4-7.6-6.8 3.4 3.4-6.8-7.6-1.4 7.6-1.4-3.4-6.8 6.8 3.4L12 0z" fill="#FFC220"/>
+        </svg>
+        Walmart Strategy Dashboard
     </h1>
-    <p>One page. What happened this month, and what to do about it.</p>
+    <p>One page. What happened in {dynamic_month}, and what to do about it.</p>
 </div>
-""", unsafe_allow_html=True)
+"""
+st.markdown(banner_html, unsafe_allow_html=True)
 
 st.markdown(f"""
 <div class="kpi-container">
@@ -275,7 +280,7 @@ else:
     st.markdown("### 💡 Key Takeaways")
     takeaways = ""
     for i, row in rules_df.head(3).iterrows():
-        action_text = row['Strategy'].split(':')[0].strip() # Extracts just the icon and bold action word
+        action_text = row['Strategy'].split(':')[0].strip()
         takeaways += f"<li>Customers buying <strong>{row['Item_A']}</strong> heavily drive sales of <strong>{row['Item_B']}</strong> — {action_text}.</li>"
     
     st.markdown(f"""
