@@ -34,6 +34,11 @@ st.markdown("""
     .critical-box { background-color: #fff0f1; border-left: 6px solid #DC3545; padding: 16px 20px; border-radius: 8px; margin-bottom: 20px; color: #721C24; font-weight: 500;}
     
     .content-card { background-color: #ffffff; border-radius: 12px; padding: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); border: 1px solid #f0f0f0; margin-bottom: 30px; height: 100%;}
+    
+    .takeaways-list { list-style: none; padding-left: 0; margin: 0; }
+    .takeaways-list li { margin-bottom: 16px; padding-left: 24px; position: relative; font-size: 15px; color: #444; line-height: 1.5; }
+    .takeaways-list li:before { content: '→'; position: absolute; left: 0; color: #0071CE; font-weight: bold; }
+
     #MainMenu {visibility: hidden;} footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
@@ -83,8 +88,6 @@ def process_data(df, min_supp, optimize_for, total_txns):
     
     rules['Pair_Profit'] = rules.apply(lambda row: PRODUCT_DB.get(row['Item_A'], {}).get('profit', 0) + PRODUCT_DB.get(row['Item_B'], {}).get('profit', 0), axis=1)
     
-    # Advanced Insight: Calculate Money Left on the Table
-    # If a customer buys A, but forgets B, how much profit did we miss?
     rules['Item_A_Txns'] = (rules['support'] / rules['confidence']) * total_txns
     rules['Missed_Txns'] = rules['Item_A_Txns'] * (1 - rules['confidence'])
     rules['Missed_Profit'] = rules.apply(lambda row: row['Missed_Txns'] * PRODUCT_DB.get(row['Item_B'], {}).get('profit', 0), axis=1)
@@ -132,7 +135,6 @@ if 'Date' in df.columns:
         busiest_day = df['Date'].dt.day_name().mode()[0]
         traffic_df = df['Date'].dt.day_name().value_counts().reset_index()
         traffic_df.columns = ['Day', 'Transactions']
-        # Order days correctly
         cats = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
         traffic_df['Day'] = pd.Categorical(traffic_df['Day'], categories=cats, ordered=True)
         traffic_df = traffic_df.sort_values('Day')
@@ -184,12 +186,12 @@ st.markdown(f"""
 
 # --- 6. ADVANCED INSIGHTS (Charts) ---
 if not rules_df.empty:
-    col_chart, col_traffic = st.columns([1.5, 1])
+    col_chart, col_traffic = st.columns(2)
     
     with col_chart:
         st.markdown('<div class="content-card">', unsafe_allow_html=True)
         chart_title_metric = "Volume" if optimization == "📦 Sales Volume" else "Profit"
-        st.markdown(f"#### Top 5 Product Pairings <span style='font-size: 14px; color: #888; font-weight: normal;'>(Ranked by {chart_title_metric})</span>", unsafe_allow_html=True)
+        st.markdown(f"#### 📊 Top 5 Product Pairings <span style='font-size: 14px; color: #888; font-weight: normal;'>(Ranked by {chart_title_metric})</span>", unsafe_allow_html=True)
         
         chart_data = rules_df.head(5).copy()
         chart_data['Pair Name'] = chart_data['Item_A'] + " & " + chart_data['Item_B']
@@ -208,7 +210,7 @@ if not rules_df.empty:
 
     with col_traffic:
         st.markdown('<div class="content-card">', unsafe_allow_html=True)
-        st.markdown("#### 👥 Store Traffic & Staffing (By Day)")
+        st.markdown("#### 👥 Store Traffic & Staffing Heatmap")
         if not traffic_df.empty:
             traffic_chart = alt.Chart(traffic_df).mark_bar(color='#FFC220', cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
                 x=alt.X('Day:N', title='', sort=cats, axis=alt.Axis(labelAngle=-45, labelColor='#555')),
@@ -220,19 +222,31 @@ if not rules_df.empty:
             st.info("No date data available to generate traffic heatmap.")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # ACTION PLAN
-    st.markdown('<div class="content-card">', unsafe_allow_html=True)
-    st.markdown("### 📋 Intelligent Action Plan")
-    st.caption("Strategies are dynamically calculated based on margin loss and checkout probability.")
+    # --- 7. ACTION PLAN & TAKEAWAYS ---
+    col_takeaways, col_action = st.columns([1, 1.8])
     
-    display_cols = rules_df[['Item_A', 'Item_B', 'Strategy']].copy()
-    display_cols.columns = ['Driver Product (Bought First)', 'Partner Product (Bought Second)', 'Recommended Execution Strategy']
-    st.dataframe(display_cols, hide_index=True, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    with col_takeaways:
+        st.markdown('<div class="content-card">', unsafe_allow_html=True)
+        st.markdown("#### 💡 Executive Takeaways")
+        takeaways = ""
+        for i, row in rules_df.head(4).iterrows():
+            action_text = row['Strategy'].split(':')[0].strip()
+            takeaways += f"<li>Customers buying <strong>{row['Item_A']}</strong> heavily drive sales of <strong>{row['Item_B']}</strong>. Action: {action_text}</li>"
+        st.markdown(f'<ul class="takeaways-list">{takeaways}</ul>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
+    with col_action:
+        st.markdown('<div class="content-card">', unsafe_allow_html=True)
+        st.markdown("#### 📋 Intelligent Action Plan")
+        display_cols = rules_df[['Item_A', 'Item_B', 'Strategy']].copy()
+        display_cols.columns = ['Driver Product', 'Partner Product', 'Recommended Execution']
+        st.dataframe(display_cols, hide_index=True, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # --- 8. ANALYST SECTION ---
     with st.expander("🔍 Advanced Analytics (Money Left on the Table)"):
         st.markdown("""
-        * **Missed Checkouts:** The estimated number of people who bought the Driver Product, but left without buying the Partner Product.
+        * **Missed Checkouts:** Estimated number of people who bought the Driver Product, but left without buying the Partner Product.
         * **Missed Profit:** The exact dollar amount lost by not bundling these items effectively.
         """)
         analyst_df = rules_df[['Item_A', 'Item_B', 'confidence', 'Missed_Txns', 'Missed_Profit']].copy()
