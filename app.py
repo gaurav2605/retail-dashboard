@@ -13,7 +13,7 @@ st.markdown("""
 <style>
     /* TRUE FULL SCREEN & HIDE SIDEBAR COMPLETELY */
     .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; max-width: 98% !important; }
-    [data-testid="collapsedControl"] { display: none !important; } /* Hides the sidebar expansion arrow */
+    [data-testid="collapsedControl"] { display: none !important; } 
     header { visibility: hidden !important; }
     #MainMenu {visibility: hidden;} footer {visibility: hidden;}
     
@@ -58,7 +58,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# RAW INLINE SVG LOGO (100% immune to browser blocking)
+# RAW INLINE SVG LOGO
 walmart_spark_svg = """
 <svg width="45" height="45" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
     <path d="M50 10 L50 32 M85 30 L67 45 M85 70 L67 55 M50 90 L50 68 M15 70 L33 55 M15 30 L33 45" stroke="#FFC220" stroke-width="9" stroke-linecap="round"/>
@@ -151,9 +151,10 @@ def process_data(df, min_supp, optimize_for, total_txns):
     else: rules = rules.sort_values(by='support', ascending=False)
         
     rules['Strategy'] = rules.apply(lambda row: generate_strategy(row['Item_A'], row['Item_B'], row['lift'], row['confidence'], row['support'], row['Missed_Profit']), axis=1)
+    rules['Pair'] = rules['Item_A'] + " & " + rules['Item_B']
     return rules
 
-# --- 5. ADMINISTRATOR CONTROLS (Replacing Sidebar) ---
+# --- 5. ADMINISTRATOR CONTROLS ---
 with st.expander("⚙️ Administrator Tools (Data Upload & Settings)"):
     st.markdown("Use this panel to manage system data or log out of the terminal.")
     admin_col1, admin_col2, admin_col3 = st.columns(3)
@@ -222,8 +223,9 @@ if target_product != "Show All Products" and not rules_df.empty:
 # Alerts
 if not rules_df.empty:
     for i, row in rules_df.head(2).iterrows():
-        if PRODUCT_DB.get(row['Item_B'], {}).get('stock', 999) < 20:
-            st.markdown(f'<div class="critical-box">⚠️ <strong>INVENTORY CRITICAL:</strong> Only {PRODUCT_DB.get(row["Item_B"], {}).get("stock")} units of {row["Item_B"]} remaining. Restock to support {row["Item_A"]} sales.</div>', unsafe_allow_html=True)
+        stock = PRODUCT_DB.get(row['Item_B'], {}).get('stock', 999)
+        if stock < 20:
+            st.markdown(f'<div class="critical-box">⚠️ <strong>INVENTORY CRITICAL:</strong> Only {stock} units of {row["Item_B"]} remaining. Restock to support {row["Item_A"]} sales.</div>', unsafe_allow_html=True)
 
 # KPIs
 st.markdown(f"""
@@ -246,7 +248,6 @@ if not rules_df.empty:
         st.markdown(f"#### 📊 Top 5 Pairings <span style='font-size: 13px; color: #888;'>(by {metric_name})</span>", unsafe_allow_html=True)
         
         chart_data = rules_df.head(5).copy()
-        chart_data['Pair'] = chart_data['Item_A'] + " & " + chart_data['Item_B']
         x_col = 'Pair_Profit' if optimization == "💰 Maximum Profit" else 'support'
         
         base = alt.Chart(chart_data).encode(
@@ -268,64 +269,65 @@ if not rules_df.empty:
         st.markdown(f'<ul class="takeaways-list">{takeaways}</ul>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- 9. ACTION PLAN ---
-    st.markdown('<div class="content-card">', unsafe_allow_html=True)
-    st.markdown("#### 📋 Intelligent Action Plan")
-    display_cols = rules_df[['Item_A', 'Item_B', 'Strategy']].copy()
-    display_cols.columns = ['Driver Product', 'Partner Product', 'Recommended Execution']
-    st.dataframe(display_cols, hide_index=True, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # --- 10. MANAGER DIAGNOSTIC CENTER (Expanded Tabs) ---
-    st.markdown("### 🔬 Manager Diagnostic Center")
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📉 Inventory Burn Risk", "🚀 Growth Opportunities", "👥 Traffic Analytics", "🛒 Trip Type Analysis", "📈 Margin Analyzer"])
+    # --- 9. MANAGER DIAGNOSTIC CENTER (VISUALIZED) ---
+    st.markdown("### 🔬 Visual Diagnostic Center")
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📉 Inventory Burn", "🚀 Growth Opportunities", "👥 Traffic Heatmap", "🛒 Trip Types", "📈 Margin Analyzer"])
     
     with tab1:
-        st.markdown("**Identify which products are at highest risk of stockouts based on pairing velocity.**")
-        inv_df = rules_df[['Item_A', 'Item_B', 'support']].copy()
-        inv_df['Stock (A)'] = inv_df['Item_A'].apply(lambda x: PRODUCT_DB.get(x, {}).get('stock', 0))
+        st.markdown("**Inventory Burn Risk:** Red bars indicate critically low stock for frequently paired items.")
+        inv_df = rules_df.head(10).copy()
         inv_df['Stock (B)'] = inv_df['Item_B'].apply(lambda x: PRODUCT_DB.get(x, {}).get('stock', 0))
-        inv_df['Risk Level'] = inv_df.apply(lambda row: "🚨 High Risk" if row['Stock (B)'] < 30 else "✅ Stable", axis=1)
-        st.dataframe(inv_df[['Item_A', 'Item_B', 'Stock (B)', 'Risk Level']], hide_index=True, use_container_width=True)
+        
+        inv_chart = alt.Chart(inv_df).mark_bar(cornerRadiusEnd=4, height=25).encode(
+            x=alt.X('Stock (B):Q', title='Units Remaining'),
+            y=alt.Y('Item_B:N', sort='x', title='Product'),
+            color=alt.condition(alt.datum['Stock (B)'] < 30, alt.value('#DC3545'), alt.value('#28A745')),
+            tooltip=['Item_B', 'Stock (B)']
+        ).properties(height=300)
+        st.altair_chart(inv_chart, use_container_width=True)
         
     with tab2:
-        st.markdown("**Products with high correlation (Lift) but low overall volume. Perfect targets for new endcap promotions.**")
-        growth_df = rules_df[(rules_df['lift'] > 1.5) & (rules_df['support'] < 0.15)].copy()
-        if not growth_df.empty:
-            growth_df['lift'] = growth_df['lift'].round(2)
-            growth_df['support'] = (growth_df['support'] * 100).round(1).astype(str) + '%'
-            st.dataframe(growth_df[['Item_A', 'Item_B', 'lift', 'support']], hide_index=True, use_container_width=True)
-        else:
-            st.info("Lower the Rule Sensitivity in the Administrator Tools to reveal hidden growth opportunities.")
+        st.markdown("**Growth Matrix:** Top left quadrant (High Lift, Low Support) shows untapped promotional opportunities.")
+        growth_df = rules_df.copy()
+        
+        scatter = alt.Chart(growth_df).mark_circle(size=250, opacity=0.8, color='#0071CE').encode(
+            x=alt.X('support:Q', title='Checkout Frequency (Support)', axis=alt.Axis(format='%')),
+            y=alt.Y('lift:Q', title='Correlation Strength (Lift)', scale=alt.Scale(zero=False)),
+            tooltip=['Pair', 'lift', 'support']
+        ).properties(height=300)
+        st.altair_chart(scatter, use_container_width=True)
             
     with tab3:
-        st.markdown("**Store Traffic Heatmap to optimize staff scheduling.**")
+        st.markdown("**Store Traffic Heatmap:** Optimize your checkout staff scheduling based on weekly surges.")
         if not traffic_df.empty:
-            traffic_chart = alt.Chart(traffic_df).mark_bar(color='#FFC220', size=40, cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
-                x=alt.X('Day:N', title='', sort=cats, axis=alt.Axis(labelAngle=0, labelColor='#555')),
-                y=alt.Y('Transactions:Q', axis=None)
-            ).properties(height=280)
+            traffic_chart = alt.Chart(traffic_df).mark_bar(color='#FFC220', size=45, cornerRadiusTopLeft=6, cornerRadiusTopRight=6).encode(
+                x=alt.X('Day:N', title='', sort=cats, axis=alt.Axis(labelAngle=0, labelColor='#555', labelFontSize=13)),
+                y=alt.Y('Transactions:Q', axis=None),
+                tooltip=['Day', 'Transactions']
+            ).properties(height=300)
             st.altair_chart(traffic_chart, use_container_width=True)
             
     with tab4:
-        st.markdown("**Segment checkouts to understand shopping behavior: Quick Runs vs. Stock-Up Trips.**")
+        st.markdown("**Customer Segmentation:** Quick runs vs. Stock-up trips.")
         quick_runs = df[df['Basket_Size'] <= 2].shape[0]
         stock_ups = df[df['Basket_Size'] >= 3].shape[0]
         
-        trip_df = pd.DataFrame({
-            "Trip Type": ["🏃‍♂️ Quick Run (1-2 items)", "🛒 Stock-Up (3+ items)"],
-            "Total Transactions": [quick_runs, stock_ups],
-            "% of Store Traffic": [f"{(quick_runs/total_txns)*100:.1f}%", f"{(stock_ups/total_txns)*100:.1f}%"]
-        })
-        st.dataframe(trip_df, hide_index=True, use_container_width=True)
+        trip_df = pd.DataFrame({"Trip Type": ["🏃‍♂️ Quick Run (1-2 items)", "🛒 Stock-Up (3+ items)"], "Total Transactions": [quick_runs, stock_ups]})
+        
+        donut = alt.Chart(trip_df).mark_arc(innerRadius=70).encode(
+            theta='Total Transactions:Q',
+            color=alt.Color('Trip Type:N', scale=alt.Scale(range=['#0071CE', '#FFC220']), legend=alt.Legend(title="", orient="right", labelFontSize=14)),
+            tooltip=['Trip Type', 'Total Transactions']
+        ).properties(height=300)
+        st.altair_chart(donut, use_container_width=True)
         
     with tab5:
-        st.markdown("**Money Left on the Table: Calculate exact revenue lost when customers fail to bundle.**")
-        analyst_df = rules_df[['Item_A', 'Item_B', 'confidence', 'Missed_Txns', 'Missed_Profit']].copy()
-        analyst_df['confidence'] = (analyst_df['confidence'] * 100).round(1).astype(str) + '%'
-        analyst_df['Missed_Txns'] = analyst_df['Missed_Txns'].round(0).astype(int)
-        analyst_df['Missed_Profit'] = analyst_df['Missed_Profit'].apply(lambda x: f"${x:,.2f}")
-        analyst_df.columns = ['Driver (A)', 'Partner (B)', 'Checkout Probability', 'Missed Checkouts', 'Missed Profit ($)']
-        st.dataframe(analyst_df, hide_index=True, use_container_width=True)
+        st.markdown("**Money Left on the Table:** Exact dollar amount lost when customers fail to buy bundled pairings.")
+        margin_chart = alt.Chart(rules_df.head(8)).mark_bar(color='#28A745', cornerRadiusEnd=4, height=25).encode(
+            x=alt.X('Missed_Profit:Q', title='Estimated Lost Profit ($)', axis=alt.Axis(format='$,.0f')),
+            y=alt.Y('Pair:N', sort='-x', title='', axis=alt.Axis(labelFontSize=12)),
+            tooltip=['Pair', 'Missed_Profit']
+        ).properties(height=300)
+        st.altair_chart(margin_chart, use_container_width=True)
 else:
     st.info("ℹ️ No associations found. Adjust filters or lower sensitivity in the Administrator Tools.")
