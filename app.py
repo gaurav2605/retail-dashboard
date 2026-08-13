@@ -147,10 +147,13 @@ else: st.error("⚠️ 'transactions_2000.csv' not found."); st.stop()
 
 df['Items_List'] = df['Items'].astype(str).str.split(',').apply(lambda x: [i.strip() for i in x])
 df['Basket_Size'] = df['Items_List'].apply(len)
+# Calculate total profit per basket for the Halo Effect
+df['Basket_Profit'] = df['Items_List'].apply(lambda x: sum([PRODUCT_DB.get(i, {}).get('profit', 0) for i in x]))
 
 total_txns = len(df)
 all_items = [item for sublist in df['Items_List'] for item in sublist]
 avg_basket = round(df['Basket_Size'].mean(), 1) if total_txns > 0 else 0
+avg_basket_profit = df['Basket_Profit'].mean()
 best_seller = pd.Series(all_items).mode()[0] if all_items else "N/A"
 total_revenue = sum([PRODUCT_DB.get(i, {}).get('profit', 1.00) for i in all_items])
 
@@ -184,7 +187,6 @@ st.markdown(f"""
 st.markdown("### 📋 Executive Execution Plan")
 briefing_col1, briefing_col2, briefing_col3 = st.columns(3)
 
-# Card 1: Inventory (Red)
 with briefing_col1:
     oos_item = "None"
     if not rules_df.empty:
@@ -209,7 +211,6 @@ with briefing_col1:
         else: 
             st.markdown(f'<div class="briefing-card" style="background: linear-gradient(135deg, #28A745, #218838);"><h4>✅ 1. Inventory</h4><p>All highly-correlated products have sufficient stock.</p></div>', unsafe_allow_html=True)
 
-# Card 2: Merchandising (Blue)
 with briefing_col2:
     if not rules_df.empty:
         top_bundle = rules_df.sort_values('Missed_Profit', ascending=False).iloc[0]
@@ -226,7 +227,6 @@ with briefing_col2:
         </div>
         """, unsafe_allow_html=True)
 
-# Card 3: Labor (Yellow)
 with briefing_col3:
     if not traffic_df.empty:
         peak_day_row = traffic_df.loc[traffic_df['Transactions'].idxmax()]
@@ -243,7 +243,6 @@ with briefing_col3:
         </div>
         """, unsafe_allow_html=True)
 
-# Export Feature for Managers
 st.download_button(
     label="📥 Export Daily Action Plan for Floor Supervisors (CSV)",
     data="Task,Description,Impact\nInventory Recovery,Restock low-stock priority items immediately.,Revenue Protection\nPlanogram Execution,Build endcap for top mathematically backed product pairing.,Capture Missed Profit\nLabor Optimization,Align checkout staff roster to projected peak traffic days.,Reduce Queue Times",
@@ -252,7 +251,7 @@ st.download_button(
     use_container_width=True
 )
 
-st.write("") # Spacer
+st.write("") 
 
 # KPIs
 st.markdown(f"""
@@ -267,9 +266,42 @@ st.markdown(f"""
 # --- 8. CONSULTANT DIAGNOSTIC CENTER ---
 if not rules_df.empty:
     st.markdown("### 🔬 Consultant Diagnostic Center")
-    tab1, tab2, tab3, tab4 = st.tabs(["🏷️ Loss Leader Strategy", "👥 AI Labor Optimizer", "📈 Bundling Economics", "🛒 Trip Dynamics"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["✨ Product Halo Effect", "🏷️ Loss Leader Strategy", "👥 AI Labor Optimizer", "📈 Bundling Economics", "🛒 Trip Dynamics"])
     
+    # 🚀 NEW FEATURE: PRODUCT HALO EFFECT
     with tab1:
+        st.markdown("**The Halo Effect (Basket Multiplier):** Identifies 'Anchor Products'. When a customer puts this item in their cart, the overall profitability of their entire shopping trip skyrockets. *Action: Feature these items on the front page of your weekly ad flyer to drive total store margin.*")
+        
+        halo_data = []
+        unique_items = PRODUCT_DB.keys()
+        for item in unique_items:
+            # Find transactions containing this item
+            contains_item = df[df['Items_List'].apply(lambda x: item in x)]
+            if not contains_item.empty:
+                halo_data.append({'Product': item, 'Avg_Basket_Profit': contains_item['Basket_Profit'].mean()})
+                
+        halo_df = pd.DataFrame(halo_data).sort_values('Avg_Basket_Profit', ascending=False)
+        
+        if not halo_df.empty:
+            bar_chart = alt.Chart(halo_df).mark_bar(color='#0071CE', cornerRadiusEnd=4, size=25).encode(
+                x=alt.X('Avg_Basket_Profit:Q', title='Average Total Cart Profit ($)', axis=alt.Axis(format='$,.2f')),
+                y=alt.Y('Product:N', sort='-x', title='', axis=alt.Axis(labelFontSize=13)),
+                tooltip=['Product', 'Avg_Basket_Profit']
+            )
+            
+            # Add a red line showing the store average
+            rule = alt.Chart(pd.DataFrame({'baseline': [avg_basket_profit]})).mark_rule(color='#DC3545', strokeWidth=3, strokeDash=[5, 5]).encode(
+                x='baseline:Q'
+            )
+            
+            # Text label for the red line
+            rule_text = alt.Chart(pd.DataFrame({'baseline': [avg_basket_profit]})).mark_text(
+                align='left', dx=5, dy=-150, text='Store Avg Cart Profit', color='#DC3545', fontWeight='bold', fontSize=12
+            ).encode(x='baseline:Q')
+            
+            st.altair_chart((bar_chart + rule + rule_text).properties(height=350), use_container_width=True)
+
+    with tab2:
         st.markdown("**The Loss Leader Matrix:** Identifies low-margin items that act as 'bait' (high support/confidence) to drive the sales of highly profitable items. *Action: Discount the Driver, mark up the Partner.*")
         ll_df = rules_df[(rules_df['Profit_A'] < 1.50) & (rules_df['Profit_B'] > 3.00)].copy()
         
@@ -284,7 +316,7 @@ if not rules_df.empty:
         else:
             st.info("No clear loss-leader patterns detected at current sensitivity levels.")
 
-    with tab2:
+    with tab3:
         st.markdown("**Labor vs. Traffic Optimizer:** Matches forecasted store traffic with required checkout headcount to prevent bottlenecks without overspending on payroll.")
         if not traffic_df.empty:
             base = alt.Chart(traffic_df).encode(x=alt.X('Day:N', sort=cats, axis=alt.Axis(labelAngle=0, labelColor='#555', labelFontSize=13)))
@@ -293,7 +325,7 @@ if not rules_df.empty:
             points = base.mark_circle(color='#FFC220', size=150).encode(y=alt.Y('Est_Cashiers_Needed:Q'), tooltip=['Day', 'Transactions', 'Est_Cashiers_Needed'])
             st.altair_chart(alt.layer(bar, line + points).resolve_scale(y='independent').properties(height=350), use_container_width=True)
 
-    with tab3:
+    with tab4:
         st.markdown("**Planogram Optimization (Revenue Leakage):** Exact dollar amount lost when the layout fails to facilitate bundled purchases.")
         margin_chart = alt.Chart(rules_df.sort_values('Missed_Profit', ascending=False).head(6)).mark_bar(color='#28A745', cornerRadiusEnd=4, height=30).encode(
             x=alt.X('Missed_Profit:Q', title='Estimated Lost Profit ($)', axis=alt.Axis(format='$,.0f')),
@@ -302,7 +334,7 @@ if not rules_df.empty:
         ).properties(height=350)
         st.altair_chart(margin_chart, use_container_width=True)
             
-    with tab4:
+    with tab5:
         st.markdown("**Customer Segmentation:** Understanding the mission of the shopper to adjust front-end merchandising.")
         quick_runs = df[df['Basket_Size'] <= 2].shape[0]
         stock_ups = df[df['Basket_Size'] >= 3].shape[0]
