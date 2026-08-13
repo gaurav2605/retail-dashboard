@@ -145,19 +145,16 @@ with st.expander("⚙️ System Settings (Upload Data & Log Out)"):
             st.rerun()
 
 # --- 6. READ DATA & ADD PAYMENT TYPES ---
-# Generate sample data if no file is uploaded
 if uploaded_file is not None: 
     df = pd.read_csv(uploaded_file)
 else:
-    # Create fake data that looks real for the manager
     items = list(PRODUCT_DB.keys())
     data = []
     start_date = datetime.datetime.now() - datetime.timedelta(days=7)
     for i in range(1, 1501):
         date = start_date + datetime.timedelta(days=random.randint(0, 7))
         basket = random.sample(items, random.randint(1, 4))
-        # Add random payment type
-        payment = random.choices(['Digital (Card/App)', 'Cash'], weights=[70, 30])[0]
+        payment = random.choices(['Digital (Card/Phone)', 'Cash'], weights=[75, 25])[0]
         data.append([f"TXN-{8000+i}", date.strftime("%Y-%m-%d"), ",".join(basket), payment])
     df = pd.DataFrame(data, columns=['Transaction_ID', 'Date', 'Items', 'Payment_Type'])
 
@@ -267,16 +264,16 @@ st.markdown(f"""
 # --- 8. STORE GROWTH TOOLS ---
 st.markdown("### 📊 Store Growth Tools")
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "🛒 Total Cart Boosters", 
+    "🛒 Cart Boosters", 
     "🏷️ Traffic Builders", 
     "💸 Missed Sales", 
     "👥 Staffing Needs",
     "💳 How People Pay",
-    "🧹 Clearance Rack Finder"
+    "🧹 Clearance Finder"
 ])
     
 with tab1:
-    st.markdown("**Total Cart Boosters:** When a customer buys one of these items, they usually end up spending a lot more money in the store overall. Put these items in your weekly flyers.")
+    st.markdown("**Cart Boosters:** When a customer buys one of these items, they usually end up spending a lot more money in the store overall. Put these items in your weekly flyers.")
     halo_data = []
     for item in PRODUCT_DB.keys():
         contains_item = df[df['Items_List'].apply(lambda x: item in x)]
@@ -294,7 +291,7 @@ with tab1:
         st.altair_chart(apply_chart_font(bar_chart + rule).properties(height=350), use_container_width=True)
 
 with tab2:
-    st.markdown("**Traffic Builders (Loss Leaders):** These are cheap items (Main Item) that get people into the store to buy expensive items (Add-on Item). *Tip: Put the cheap items on sale.*")
+    st.markdown("**Traffic Builders:** These are cheap items (Main Item) that get people into the store to buy expensive items (Add-on Item). *Tip: Put the cheap items on sale.*")
     if not rules_df.empty:
         ll_df = rules_df[(rules_df['Profit Main'] < 1.50) & (rules_df['Profit Add-on'] > 3.00)].copy()
         if not ll_df.empty:
@@ -305,7 +302,7 @@ with tab2:
                 tooltip=['Main Item', 'Add-on Item', 'confidence']
             )
             st.altair_chart(apply_chart_font(ll_chart).properties(height=350), use_container_width=True)
-        else: st.info("No patterns found. Adjust settings.")
+        else: st.info("No patterns found. Adjust settings in the Configuration menu.")
 
 with tab3:
     st.markdown("**Missed Sales (Bad Layout):** This shows how much money you are losing because related items are too far apart in the store.")
@@ -345,10 +342,9 @@ with tab6:
     item_counts.columns = ['Item', 'Times Bought']
     item_counts['Current Stock'] = item_counts['Item'].apply(lambda x: PRODUCT_DB.get(x, {}).get('stock', 0))
     
-    # Define dead stock: High inventory (>100), low sales (Bought in less than 5% of trips)
     dead_stock = item_counts[(item_counts['Current Stock'] > 100) & (item_counts['Times Bought'] < (total_txns * 0.05))]
     
     if not dead_stock.empty:
         st.dataframe(dead_stock[['Item', 'Current Stock', 'Times Bought']], hide_index=True, use_container_width=True)
     else:
-        st.success("Great news! You don't have any major dead stock taking up space right now.")
+        st.success("Great news! You don't have any major items taking up space right now.")
