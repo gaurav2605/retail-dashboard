@@ -12,6 +12,11 @@ st.set_page_config(page_title="Supercenter Dashboard", layout="wide", initial_si
 st.markdown("""
 <style>
     body { font-family: 'Inter', 'Segoe UI', sans-serif; background-color: #f8f9fa; }
+    
+    /* Login Screen */
+    .login-container { max-width: 400px; margin: 80px auto; padding: 40px; background: white; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.05); border: 1px solid #eaeaea; text-align: center; }
+    .login-logo { margin-bottom: 20px; }
+    
     .main-banner {
         background-color: #0071CE; padding: 25px 35px; border-radius: 12px; margin-bottom: 25px; 
         color: white; box-shadow: 0 4px 15px rgba(0, 113, 206, 0.2);
@@ -43,7 +48,43 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. INTERNAL DATABASE (Profit & Inventory) ---
+# --- 2. AUTHENTICATION LOGIC ---
+if 'authenticated' not in st.session_state:
+    st.session_state['authenticated'] = False
+
+def check_password():
+    if st.session_state['authenticated']:
+        return True
+        
+    st.markdown("""
+        <div class="login-container">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Walmart_logo.svg/512px-Walmart_logo.svg.png" width="150" class="login-logo">
+            <h2 style="color: #333; margin-bottom: 5px;">Manager Portal</h2>
+            <p style="color: #777; font-size: 14px; margin-bottom: 25px;">Secure access required</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    with col2:
+        with st.form("login_form"):
+            username = st.text_input("Username", placeholder="Enter your User ID")
+            password = st.text_input("Password", type="password", placeholder="Enter your Password")
+            submit_button = st.form_submit_button("Secure Login", use_container_width=True)
+            
+            if submit_button:
+                if username == "admin" and password == "manager123":
+                    st.session_state['authenticated'] = True
+                    st.rerun()
+                else:
+                    st.error("❌ Invalid username or password.")
+    return False
+
+# Halt the app here if the user is not logged in
+if not check_password():
+    st.stop()
+
+
+# --- 3. INTERNAL DATABASE (Profit & Inventory) ---
 PRODUCT_DB = {
     'Bread': {'profit': 0.75, 'stock': 12}, 
     'Butter': {'profit': 1.10, 'stock': 85},
@@ -58,7 +99,7 @@ PRODUCT_DB = {
     'Snacks': {'profit': 2.00, 'stock': 500}
 }
 
-# --- 3. HELPER FUNCTIONS ---
+# --- 4. HELPER FUNCTIONS ---
 def generate_strategy(item_a, item_b, lift, conf, supp, missed_profit):
     conf_pct = round(conf * 100)
     if conf >= 0.95:
@@ -103,7 +144,7 @@ def process_data(df, min_supp, optimize_for, total_txns):
     rules['Strategy'] = rules.apply(lambda row: generate_strategy(row['Item_A'], row['Item_B'], row['lift'], row['confidence'], row['support'], row['Missed_Profit']), axis=1)
     return rules
 
-# --- 4. DATA INGESTION & SIDEBAR ---
+# --- 5. DATA INGESTION & SIDEBAR ---
 with st.sidebar:
     st.markdown("### ⚙️ Engine Settings")
     sensitivity = st.slider("Rule Sensitivity", 0.01, 0.50, 0.05, 0.01)
@@ -111,6 +152,10 @@ with st.sidebar:
     st.divider()
     st.markdown("### 📥 Manual Upload")
     uploaded_file = st.file_uploader("Override Transactions", type="csv")
+    st.divider()
+    if st.button("🔒 Secure Logout", use_container_width=True):
+        st.session_state['authenticated'] = False
+        st.rerun()
 
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
@@ -140,7 +185,7 @@ if 'Date' in df.columns:
         traffic_df = traffic_df.sort_values('Day')
     except: pass
 
-# --- 5. MAIN DASHBOARD UI ---
+# --- 6. MAIN DASHBOARD UI ---
 dynamic_month = datetime.datetime.now().strftime("%B %Y")
 
 st.markdown(f"""
@@ -184,7 +229,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# --- 6. ADVANCED INSIGHTS (Charts) ---
+# --- 7. ADVANCED INSIGHTS (Charts) ---
 if not rules_df.empty:
     col_chart, col_traffic = st.columns(2)
     
@@ -222,7 +267,7 @@ if not rules_df.empty:
             st.info("No date data available to generate traffic heatmap.")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- 7. ACTION PLAN & TAKEAWAYS ---
+    # --- 8. ACTION PLAN & TAKEAWAYS ---
     col_takeaways, col_action = st.columns([1, 1.8])
     
     with col_takeaways:
@@ -243,7 +288,7 @@ if not rules_df.empty:
         st.dataframe(display_cols, hide_index=True, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- 8. ANALYST SECTION ---
+    # --- 9. ANALYST SECTION ---
     with st.expander("🔍 Advanced Analytics (Money Left on the Table)"):
         st.markdown("""
         * **Missed Checkouts:** Estimated number of people who bought the Driver Product, but left without buying the Partner Product.
