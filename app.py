@@ -161,7 +161,6 @@ if 'Date' in df.columns:
         cats = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
         traffic_df['Day'] = pd.Categorical(traffic_df['Day'], categories=cats, ordered=True)
         traffic_df = traffic_df.sort_values('Day')
-        # Consultant Feature: Calculate Staff Needed (Assuming 1 cashier handles ~40 txns/day for this model)
         traffic_df['Est_Cashiers_Needed'] = (traffic_df['Transactions'] / 40).apply(math.ceil)
     except: pass
 
@@ -182,7 +181,6 @@ st.markdown(f"""
 st.markdown("### 📋 Today's Executive Priorities")
 briefing_col1, briefing_col2, briefing_col3 = st.columns(3)
 
-# Priority 1: Inventory OOS Risk
 with briefing_col1:
     oos_item = "None"
     if not rules_df.empty:
@@ -195,13 +193,11 @@ with briefing_col1:
             st.markdown(f'<div class="briefing-card" style="background: linear-gradient(135deg, #DC3545, #C82333);"><h4>🚨 Inventory Risk</h4><p>Restock <strong>{oos_item}</strong> immediately. You risk losing ${risk_val:,.0f} in bundled sales today.</p></div>', unsafe_allow_html=True)
         else: st.markdown(f'<div class="briefing-card" style="background: linear-gradient(135deg, #28A745, #218838);"><h4>✅ Inventory</h4><p>All highly-correlated products have sufficient stock.</p></div>', unsafe_allow_html=True)
 
-# Priority 2: Merchandising
 with briefing_col2:
     if not rules_df.empty:
         top_bundle = rules_df.sort_values('Missed_Profit', ascending=False).iloc[0]
         st.markdown(f'<div class="briefing-card" style="background: linear-gradient(135deg, #0071CE, #0056b3);"><h4>📦 Planogram Action</h4><p>Build an endcap pairing <strong>{top_bundle["Item_A"]} & {top_bundle["Item_B"]}</strong>. Recapture ${top_bundle["Missed_Profit"]:,.0f} lost revenue.</p></div>', unsafe_allow_html=True)
 
-# Priority 3: Labor
 with briefing_col3:
     if not traffic_df.empty:
         peak_day_row = traffic_df.loc[traffic_df['Transactions'].idxmax()]
@@ -222,10 +218,8 @@ if not rules_df.empty:
     st.markdown("### 🔬 Consultant Diagnostic Center")
     tab1, tab2, tab3, tab4 = st.tabs(["🏷️ Loss Leader Strategy", "👥 AI Labor Optimizer", "📈 Bundling Economics", "🛒 Trip Dynamics"])
     
-    # 🚀 CONSULTANT FEATURE 2: LOSS LEADER MATRIX
     with tab1:
         st.markdown("**The Loss Leader Matrix:** Identifies low-margin items that act as 'bait' (high support/confidence) to drive the sales of highly profitable items. *Action: Discount the Driver, mark up the Partner.*")
-        # Filter for Driver profit < $1.50, Partner profit > $3.00
         ll_df = rules_df[(rules_df['Profit_A'] < 1.50) & (rules_df['Profit_B'] > 3.00)].copy()
         
         if not ll_df.empty:
@@ -239,7 +233,6 @@ if not rules_df.empty:
         else:
             st.info("No clear loss-leader patterns detected at current sensitivity levels.")
 
-    # 🚀 CONSULTANT FEATURE 3: LABOR COST OPTIMIZER
     with tab2:
         st.markdown("**Labor vs. Traffic Optimizer:** Matches forecasted store traffic with required checkout headcount to prevent bottlenecks without overspending on payroll.")
         if not traffic_df.empty:
@@ -247,14 +240,14 @@ if not rules_df.empty:
             bar = base.mark_bar(color='#E9ECEF', cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(y=alt.Y('Transactions:Q', title='Transaction Volume'))
             line = base.mark_line(color='#0071CE', strokeWidth=4).encode(y=alt.Y('Est_Cashiers_Needed:Q', title='Required Cashiers'))
             points = base.mark_circle(color='#FFC220', size=150).encode(y=alt.Y('Est_Cashiers_Needed:Q'), tooltip=['Day', 'Transactions', 'Est_Cashiers_Needed'])
-            
             st.altair_chart(alt.layer(bar, line + points).resolve_scale(y='independent').properties(height=350), use_container_width=True)
 
     with tab3:
         st.markdown("**Planogram Optimization (Revenue Leakage):** Exact dollar amount lost when the layout fails to facilitate bundled purchases.")
+        # FIX APPLIED HERE: labelFontWeight='bold' instead of fontWeight='bold'
         margin_chart = alt.Chart(rules_df.sort_values('Missed_Profit', ascending=False).head(6)).mark_bar(color='#28A745', cornerRadiusEnd=4, height=30).encode(
             x=alt.X('Missed_Profit:Q', title='Estimated Lost Profit ($)', axis=alt.Axis(format='$,.0f')),
-            y=alt.Y('Pair_ID:N', sort='-x', title='Product Pairing', axis=alt.Axis(labelFontSize=13, fontWeight='bold')),
+            y=alt.Y('Pair_ID:N', sort='-x', title='Product Pairing', axis=alt.Axis(labelFontSize=13, labelFontWeight='bold')),
             tooltip=['Item_A', 'Item_B', 'Missed_Profit']
         ).properties(height=350)
         st.altair_chart(margin_chart, use_container_width=True)
