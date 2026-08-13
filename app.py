@@ -24,7 +24,7 @@ st.markdown("""
     .login-container { max-width: 380px; margin: 12vh auto; padding: 40px 30px; background: white; border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.04); border: 1px solid #F3F4F6; text-align: center; }
     
     /* Sleek Header */
-    .main-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #E5E7EB; }
+    .main-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid #E5E7EB; }
     .header-title { display: flex; align-items: center; gap: 12px; font-size: 24px; font-weight: 700; color: #111827; margin: 0; }
     
     /* Blinking Live Indicator */
@@ -47,10 +47,12 @@ st.markdown("""
     
     /* Alert Styling */
     .critical-box { background-color: #FEF2F2; border-left: 4px solid #EF4444; padding: 12px 16px; border-radius: 6px; margin-bottom: 15px; color: #991B1B; font-size: 14px; font-weight: 500; }
+    
+    .stTabs [data-baseweb="tab-list"] { gap: 30px; border-bottom: 1px solid #E5E7EB; }
+    .stTabs [data-baseweb="tab"] { height: 45px; font-weight: 500; font-size: 15px; color: #6B7280; }
 </style>
 """, unsafe_allow_html=True)
 
-# 100% BULLETPROOF INLINE SVG LOGO
 walmart_spark_svg = """<svg width="32" height="32" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M50 10 L50 32 M85 30 L67 45 M85 70 L67 55 M50 90 L50 68 M15 70 L33 55 M15 30 L33 45" stroke="#FFC220" stroke-width="10" stroke-linecap="round"/></svg>"""
 
 # --- 2. AUTHENTICATION LOGIC ---
@@ -69,8 +71,8 @@ def check_password():
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
         with st.form("login_form"):
-            username = st.text_input("User ID", placeholder="admin")
-            password = st.text_input("Passcode", type="password", placeholder="manager123")
+            username = st.text_input("User ID")
+            password = st.text_input("Passcode", type="password")
             if st.form_submit_button("Authenticate", use_container_width=True):
                 if username == "admin" and password == "manager123":
                     st.session_state['authenticated'] = True
@@ -104,17 +106,13 @@ def fetch_live_erp_data():
         else:
             basket = random.sample(items, random.randint(1, 4))
             if 'Wine' in basket and 'Cheese' not in basket and random.random() > 0.2: basket.append('Cheese')
+        
         data.append([f"TXN-{80000+i}", date.strftime("%Y-%m-%d"), ",".join(basket)])
         
     return pd.DataFrame(data, columns=['Transaction_ID', 'Date', 'Items'])
 
 # --- 4. DATA PROCESSING ENGINE ---
-def generate_strategy(item_a, item_b, lift, conf, supp, missed_profit):
-    if conf >= 0.95: return f"🏷️ DISCOUNT: Drive sales of {item_b}."
-    elif lift > 1.5 and conf >= 0.6: return f"📦 BUNDLE: Capture ${missed_profit:,.0f} lost profit."
-    else: return f"🚶 SEPARATE: Force store navigation."
-
-def process_data(df, min_supp, optimize_for, total_txns):
+def process_data(df, min_supp):
     transactions = df['Items'].astype(str).str.split(',').apply(lambda x: [i.strip() for i in x])
     te = TransactionEncoder()
     te_ary = te.fit(transactions).transform(transactions)
@@ -130,23 +128,12 @@ def process_data(df, min_supp, optimize_for, total_txns):
         
     rules['Item_A'] = rules['antecedents'].apply(lambda x: list(x)[0])
     rules['Item_B'] = rules['consequents'].apply(lambda x: list(x)[0])
-    
     rules['Pair_Profit'] = rules.apply(lambda row: PRODUCT_DB.get(row['Item_A'], {}).get('profit', 0) + PRODUCT_DB.get(row['Item_B'], {}).get('profit', 0), axis=1)
     
-    rules['Item_A_Txns'] = (rules['support'] / rules['confidence']) * total_txns
-    rules['Missed_Txns'] = rules['Item_A_Txns'] * (1 - rules['confidence'])
-    rules['Missed_Profit'] = rules.apply(lambda row: row['Missed_Txns'] * PRODUCT_DB.get(row['Item_B'], {}).get('profit', 0), axis=1)
+    rules['Missed_Profit'] = rules.apply(lambda row: ((row['support'] / row['confidence']) * len(df)) * (1 - row['confidence']) * PRODUCT_DB.get(row['Item_B'], {}).get('profit', 0), axis=1)
     
-    rules['Strategy'] = rules.apply(lambda row: generate_strategy(row['Item_A'], row['Item_B'], row['lift'], row['confidence'], row['support'], row['Missed_Profit']), axis=1)
-    
-    # Safely deduplicate unordered pairs
-    rules['Pair_ID'] = rules.apply(lambda row: " & ".join(sorted([row['Item_A'], row['Item_B']])), axis=1)
-    rules = rules.sort_values(by='confidence', ascending=False).drop_duplicates(subset=['Pair_ID'], keep='first')
-    
-    if optimize_for == "💰 Maximum Profit": 
-        return rules.sort_values(by='Pair_Profit', ascending=False)
-    else: 
-        return rules.sort_values(by='support', ascending=False)
+    rules['Pair_ID'] = rules.apply(lambda row: frozenset([row['Item_A'], row['Item_B']]), axis=1)
+    return rules.sort_values(by='Pair_Profit', ascending=False).drop_duplicates(subset=['Pair_ID'], keep='first')
 
 # --- 5. TOP LEVEL NAVIGATION & SYNC ---
 header_col1, header_col2 = st.columns([1, 1])
@@ -164,19 +151,7 @@ with header_col2:
                 st.cache_data.clear()
                 st.rerun()
 
-# --- 6. ON-PAGE CONTROLS ---
-st.markdown("<div style='margin-bottom: 20px; font-weight: 600; color: #111827;'>🎛️ Diagnostic Controls</div>", unsafe_allow_html=True)
-ctrl_1, ctrl_2, ctrl_3 = st.columns([1.5, 1.5, 1])
-with ctrl_1:
-    optimization = st.radio("Optimization Target:", ["📦 Sales Volume", "💰 Maximum Profit"], horizontal=True, label_visibility="collapsed")
-with ctrl_2:
-    sensitivity = st.slider("Algorithm Sensitivity", 0.01, 0.50, 0.05, 0.01, label_visibility="collapsed")
-with ctrl_3:
-    if st.button("🔒 Secure Logout", use_container_width=True):
-        st.session_state['authenticated'] = False
-        st.rerun()
-
-# Load Data
+# Load Data from API Simulator
 df = fetch_live_erp_data()
 df['Items_List'] = df['Items'].astype(str).str.split(',').apply(lambda x: [i.strip() for i in x])
 
@@ -184,9 +159,9 @@ df['Items_List'] = df['Items'].astype(str).str.split(',').apply(lambda x: [i.str
 total_txns = len(df)
 all_items = [item for sublist in df['Items_List'] for item in sublist]
 total_revenue = sum([PRODUCT_DB.get(i, {}).get('profit', 1.00) for i in all_items])
-health_score = min(100, int((total_revenue / 5000) * 100)) 
+health_score = min(100, int((total_revenue / 5000) * 100))
 
-# --- 7. KPI GRID ---
+# --- 6. KPI GRID ---
 st.markdown(f"""
 <div class="kpi-grid">
     <div class="kpi-card"><div class="kpi-title">Store Health Score</div><div class="kpi-value">{health_score}/100</div><div class="kpi-trend trend-up">↑ Optimal Range</div></div>
@@ -196,8 +171,8 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# --- 8. CORE DIAGNOSTICS ---
-rules_df = process_data(df, sensitivity, optimization, total_txns)
+# --- 7. CORE DIAGNOSTICS ---
+rules_df = process_data(df, 0.05)
 
 if not rules_df.empty:
     for i, row in rules_df.head(2).iterrows():
@@ -205,31 +180,55 @@ if not rules_df.empty:
         if stock < 20:
             st.markdown(f'<div class="critical-box">⚠️ <strong>SYSTEM ALERT:</strong> {row["Item_B"]} inventory is critical ({stock} units). This will block algorithm-predicted sales of {row["Item_A"]}.</div>', unsafe_allow_html=True)
 
-    col_chart, col_text = st.columns([1.5, 1])
-    with col_chart:
-        st.markdown(f'<div class="content-card"><div class="card-header">Highest Performing Pairings ({optimization.split(" ")[1]})</div>', unsafe_allow_html=True)
-        chart_data = rules_df.head(5).copy()
-        chart_data['Pair'] = chart_data['Item_A'] + " + " + chart_data['Item_B']
-        x_col = 'Pair_Profit' if optimization == "💰 Maximum Profit" else 'support'
+    st.markdown("### Operational Intelligence")
+    tab1, tab2, tab3 = st.tabs(["💰 Profit Optimization", "📦 Layout Directives", "⚙️ Admin & Controls"])
+    
+    with tab1:
+        col_chart, col_text = st.columns([1.5, 1])
+        with col_chart:
+            st.markdown('<div class="content-card"><div class="card-header">Highest Margin Pairings (Predicted)</div>', unsafe_allow_html=True)
+            chart_data = rules_df.head(5).copy()
+            chart_data['Pair'] = chart_data['Item_A'] + " + " + chart_data['Item_B']
+            
+            base = alt.Chart(chart_data).encode(
+                x=alt.X('Pair_Profit:Q', axis=None), y=alt.Y('Pair:N', sort='-x', title='', axis=alt.Axis(labelFontSize=13, tickSize=0, domain=False))
+            )
+            bar = base.mark_bar(color='#0071CE', cornerRadiusEnd=6, height=35)
+            # FIX APPLIED HERE: Changed fontWeight='600' to fontWeight='bold'
+            text = base.mark_text(align='left', dx=8, fontSize=13, fontWeight='bold', color='#111827').encode(text=alt.Text('Pair_Profit:Q', format='$.2f'))
+            st.altair_chart((bar + text).properties(height=260), use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        with col_text:
+            st.markdown('<div class="content-card"><div class="card-header">Revenue Leakage</div>', unsafe_allow_html=True)
+            st.markdown("<p style='font-size: 14px; color: #6B7280; margin-bottom: 20px;'>Capital lost when customers purchase the anchor item but fail to purchase the associated pairing.</p>", unsafe_allow_html=True)
+            
+            leakage_chart = alt.Chart(rules_df.head(4)).mark_bar(color='#10B981', cornerRadiusEnd=4, height=20).encode(
+                x=alt.X('Missed_Profit:Q', axis=None),
+                y=alt.Y('Item_B:N', sort='-x', title='', axis=alt.Axis(labelFontSize=12)),
+                tooltip=['Item_A', 'Item_B', 'Missed_Profit']
+            ).properties(height=180)
+            st.altair_chart(leakage_chart, use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    with tab2:
+        st.markdown('<div class="content-card"><div class="card-header">Automated Merchandising Directives</div>', unsafe_allow_html=True)
+        display_df = rules_df[['Item_A', 'Item_B', 'confidence', 'Missed_Profit']].head(6).copy()
+        display_df['Directive'] = display_df.apply(lambda r: f"BUNDLE (Endcap)" if r['confidence'] > 0.6 else "SEPARATE (Aisle)", axis=1)
+        display_df['Confidence'] = (display_df['confidence'] * 100).round(1).astype(str) + '%'
+        display_df['Est. Lift Value'] = display_df['Missed_Profit'].apply(lambda x: f"${x:,.0f}")
         
-        base = alt.Chart(chart_data).encode(
-            x=alt.X(f'{x_col}:Q', axis=None), y=alt.Y('Pair:N', sort='-x', title='', axis=alt.Axis(labelFontSize=13, tickSize=0, domain=False))
-        )
-        bar = base.mark_bar(color='#0071CE', cornerRadiusEnd=6, height=35)
-        text = base.mark_text(align='left', dx=8, fontSize=13, fontWeight='600', color='#111827').encode(
-            text=alt.Text(f'{x_col}:Q', format='$.2f' if x_col == 'Pair_Profit' else '.1%')
-        )
-        st.altair_chart((bar + text).properties(height=260), use_container_width=True)
+        st.dataframe(display_df[['Item_A', 'Item_B', 'Directive', 'Confidence', 'Est. Lift Value']], hide_index=True, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
         
-    with col_text:
-        st.markdown('<div class="content-card"><div class="card-header">Automated Directives</div>', unsafe_allow_html=True)
-        display_df = rules_df[['Item_A', 'Item_B', 'Strategy', 'confidence', 'Missed_Profit']].head(6).copy()
-        display_df['Action'] = display_df['Strategy'].apply(lambda x: x.split(':')[0])
-        display_df['Conf'] = (display_df['confidence'] * 100).round(0).astype(str) + '%'
-        display_df['Value'] = display_df['Missed_Profit'].apply(lambda x: f"${x:,.0f}")
-        
-        st.dataframe(display_df[['Item_A', 'Item_B', 'Action', 'Conf', 'Value']], hide_index=True, use_container_width=True)
+    with tab3:
+        st.markdown('<div class="content-card"><div class="card-header">System Settings</div>', unsafe_allow_html=True)
+        st.slider("Algorithm Sensitivity Threshold", 0.01, 0.50, 0.05, 0.01, key="sensitivity_slider")
+        st.caption("Adjusts the Apriori confidence minimums. Higher values restrict results to absolute certainties.")
+        st.write("")
+        if st.button("End Session (Logout)", type="primary"):
+            st.session_state['authenticated'] = False
+            st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 else:
     st.info("Insufficient data to generate confidence rules. Adjust parameters.")
