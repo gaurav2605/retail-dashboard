@@ -1,3 +1,5 @@
 streamlit
 pandas
-mlxtend
+numpy
+plotly
+openpyxl
