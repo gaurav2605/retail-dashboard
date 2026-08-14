@@ -13,23 +13,22 @@ st.set_page_config(page_title="Store Manager Dashboard", layout="wide", initial_
 
 st.markdown("""
 <style>
-    /* Full screen layout and completely hide default Streamlit top headers */
-    .block-container { padding-top: 1.2rem !important; padding-bottom: 2rem !important; max-width: 98% !important; }
-    [data-testid="collapsedControl"] { display: none !important; } 
-    [data-testid="stHeader"] { display: none !important; } 
-    header { visibility: hidden !important; }
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;}
+    /* HIDE TOP RIGHT MENU AND HEADER COMPLETELY */
+    header[data-testid="stHeader"] { display: none !important; }
+    [data-testid="stToolbar"] { display: none !important; }
+    #MainMenu { visibility: hidden !important; } 
+    footer { visibility: hidden !important; }
+    .stDeployButton { display: none !important; }
     
-    /* Apply Times New Roman safely without breaking Streamlit icons */
-    body, p, h1, h2, h3, h4, h5, h6, div, span, li, button, input, label, select, option { 
+    /* FULL SCREEN LAYOUT */
+    .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 98% !important; }
+    [data-testid="collapsedControl"] { display: none !important; } 
+
+    /* PRECISE TIMES NEW ROMAN TARGETING (Prevents breaking icons) */
+    .stApp { background-color: #f4f6f9; color: #222; font-family: 'Times New Roman', Times, serif; }
+    h1, h2, h3, h4, h5, h6, p, li, label, .stMarkdown div { 
         font-family: 'Times New Roman', Times, serif !important; 
     }
-    
-    /* Re-protect SVGs and internal Streamlit icons from the font override */
-    svg, svg * { font-family: inherit !important; }
-    .st-emotion-cache-1icon { font-family: inherit !important; }
-
-    body { background-color: #f4f6f9; color: #222; }
     
     /* Login Box */
     .login-container { 
@@ -66,7 +65,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Helper function to enforce Times New Roman in Altair Charts
 def apply_chart_font(chart):
     return chart.configure_axis(
         labelFont='Times New Roman', titleFont='Times New Roman', labelFontSize=13, titleFontSize=14
