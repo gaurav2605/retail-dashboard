@@ -1,355 +1,398 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from datetime import timedelta
+import altair as alt
+import os
+import datetime
+import math
+import random
+from mlxtend.preprocessing import TransactionEncoder
+from mlxtend.frequent_patterns import apriori, association_rules
 
-# ==========================================
-# PAGE CONFIGURATION & STYLING
-# ==========================================
-st.set_page_config(page_title="AI Diagnostic Analytics", layout="wide", page_icon="📊")
+# --- 1. CONFIGURATION & STYLING ---
+st.set_page_config(page_title="Store Manager Dashboard", layout="wide", initial_sidebar_state="collapsed")
 
-# Custom CSS for Professional UI
 st.markdown("""
-    <style>
-    .main { background-color: #F8FAFC; }
-    .stApp { font-family: 'Inter', sans-serif; }
-    .kpi-card {
-        background-color: #FFFFFF;
-        padding: 20px;
-        border-radius: 8px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
-        border-left: 5px solid #4F46E5; /* Indigo accent */
-        margin-bottom: 20px;
+<style>
+    /* HIDE TOP RIGHT MENU AND HEADER COMPLETELY */
+    header[data-testid="stHeader"] { display: none !important; }
+    [data-testid="stToolbar"] { display: none !important; }
+    #MainMenu { visibility: hidden !important; } 
+    footer { visibility: hidden !important; }
+    .stDeployButton { display: none !important; }
+    
+    /* FULL SCREEN LAYOUT */
+    .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 98% !important; }
+    [data-testid="collapsedControl"] { display: none !important; } 
+
+    /* SAFE TIMES NEW ROMAN TARGETING (Does not break inputs/icons) */
+    p, h1, h2, h3, h4, h5, h6, li, label, .stMarkdown { 
+        font-family: 'Times New Roman', Times, serif !important; 
     }
-    .kpi-title { color: #64748B; font-size: 0.9rem; font-weight: 600; text-transform: uppercase; }
-    .kpi-value { color: #0F172A; font-size: 1.8rem; font-weight: 700; margin: 5px 0; }
-    .kpi-change-pos { color: #10B981; font-weight: 600; font-size: 0.9rem;}
-    .kpi-change-neg { color: #EF4444; font-weight: 600; font-size: 0.9rem;}
-    .insight-box {
-        background-color: #EEF2FF;
-        border: 1px solid #C7D2FE;
-        padding: 15px;
-        border-radius: 8px;
-        margin-bottom: 15px;
-        color: #312E81;
+    
+    body { background-color: #f4f6f9; color: #222; }
+    
+    /* Login Box */
+    .login-container { 
+        max-width: 420px; margin: 10vh auto; padding: 40px; background: white; 
+        border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); border: 1px solid #e0e0e0; text-align: center; 
+        font-family: 'Times New Roman', Times, serif;
     }
-    </style>
+    
+    /* Top Banner */
+    .main-banner {
+        background-color: #0071CE; padding: 20px 30px; border-radius: 8px; margin-bottom: 20px; 
+        color: white; box-shadow: 0 4px 10px rgba(0, 113, 206, 0.15);
+        display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;
+        font-family: 'Times New Roman', Times, serif;
+    }
+    .main-banner h1 { margin: 0; font-size: 32px; font-weight: normal; display: flex; align-items: center; gap: 15px; }
+    .main-banner p { color: #FFC220; margin: 5px 0 0 0; font-size: 16px; }
+    .date-badge { background-color: #FFC220; color: #004c8c; padding: 6px 20px; border-radius: 30px; font-weight: bold; font-size: 15px; }
+    
+    /* Daily Tasks Cards */
+    .briefing-card { 
+        padding: 20px; border-radius: 8px; color: white; box-shadow: 0 4px 10px rgba(0,0,0,0.08); 
+        display: flex; flex-direction: column; font-family: 'Times New Roman', Times, serif;
+    }
+    .briefing-card h4 { margin: 0 0 10px 0; font-size: 18px; border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 8px; font-weight: bold; }
+    .briefing-card p { margin: 0; font-size: 16px; line-height: 1.4; }
+    .briefing-card ol { margin: 12px 0; padding-left: 20px; font-size: 15px; background: rgba(255,255,255,0.15); padding: 12px 12px 12px 28px; border-radius: 4px; }
+    .impact-metric { margin-top: auto; font-size: 14px; font-weight: bold; background: rgba(0,0,0,0.25); padding: 8px 12px; border-radius: 4px; text-align: center; }
+    
+    /* KPI Cards */
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px; }
+    .kpi-card { 
+        background-color: #ffffff; border-radius: 8px; padding: 20px 15px; text-align: center; 
+        box-shadow: 0 2px 6px rgba(0,0,0,0.03); border: 1px solid #e0e0e0; font-family: 'Times New Roman', Times, serif;
+    }
+    .kpi-title { color: #555; font-size: 14px; text-transform: uppercase; margin-bottom: 8px; font-weight: bold; }
+    .kpi-value { color: #0071CE; font-size: 32px; font-weight: bold; }
+    
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] { gap: 24px; border-bottom: 1px solid #ccc; }
+    .stTabs [data-baseweb="tab"] { height: 50px; font-size: 18px; color: #333; font-family: 'Times New Roman', Times, serif;}
+</style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# DATA LOADING & PREPROCESSING
-# ==========================================
-@st.cache_data
-def load_data():
-    try:
-        df = pd.read_excel("diagnostic_ecommerce_1500.xlsx")
-        
-        # Date conversions
-        df['Order_Date'] = pd.to_datetime(df['Order_Date'])
-        
-        # Boolean conversions for rates (assuming Yes/No or True/False strings)
-        if df['Returned'].dtype == 'O':
-            df['Returned_Num'] = df['Returned'].astype(str).str.lower().map({'yes': 1, 'true': 1, 'no': 0, 'false': 0}).fillna(0)
-        else:
-            df['Returned_Num'] = df['Returned']
-            
-        if df['Complaint'].dtype == 'O':
-            df['Complaint_Num'] = df['Complaint'].astype(str).str.lower().map({'yes': 1, 'true': 1, 'no': 0, 'false': 0}).fillna(0)
-        else:
-            df['Complaint_Num'] = df['Complaint']
-            
-        # ROI calculation
-        df['ROI'] = (df['Revenue'] - df['Marketing_Spend']) / df['Marketing_Spend'].replace(0, np.nan)
-        
-        return df
-    except Exception as e:
-        st.error(f"Error loading dataset: {e}")
-        return pd.DataFrame()
+def apply_chart_font(chart):
+    return chart.configure_axis(
+        labelFont='Times New Roman', titleFont='Times New Roman', labelFontSize=13, titleFontSize=14
+    ).configure_legend(
+        labelFont='Times New Roman', titleFont='Times New Roman', labelFontSize=13, titleFontSize=14
+    ).configure_title(
+        font='Times New Roman', fontSize=16
+    ).configure_text(
+        font='Times New Roman'
+    )
 
-df_raw = load_data()
+walmart_spark_svg = """<svg width="40" height="40" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M50 10 L50 32 M85 30 L67 45 M85 70 L67 55 M50 90 L50 68 M15 70 L33 55 M15 30 L33 45" stroke="#FFC220" stroke-width="10" stroke-linecap="round"/></svg>"""
 
-if df_raw.empty:
-    st.stop()
+# --- 2. LOGIN SCREEN ---
+if 'authenticated' not in st.session_state:
+    st.session_state['authenticated'] = False
 
-# ==========================================
-# SIDEBAR NAVIGATION
-# ==========================================
-st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", [
-    "Executive Overview", 
-    "Diagnostic Analysis", 
-    "Customer Analysis", 
-    "Product & Operations", 
-    "Marketing Analysis"
-])
-
-# ==========================================
-# GLOBAL FILTERS
-# ==========================================
-st.sidebar.markdown("---")
-st.sidebar.header("Global Filters")
-
-if st.sidebar.button("Reset Filters"):
-    st.experimental_rerun()
-
-# Date Filter
-min_date = df_raw['Order_Date'].min().date()
-max_date = df_raw['Order_Date'].max().date()
-date_range = st.sidebar.date_input("Date Range", [min_date, max_date], min_value=min_date, max_value=max_date)
-
-if len(date_range) == 2:
-    start_date, end_date = date_range
-else:
-    start_date, end_date = min_date, max_date
-
-# Other Filters
-region_filter = st.sidebar.multiselect("Region", df_raw['Region'].unique())
-category_filter = st.sidebar.multiselect("Category", df_raw['Category'].unique())
-segment_filter = st.sidebar.multiselect("Customer Segment", df_raw['Customer_Segment'].unique())
-channel_filter = st.sidebar.multiselect("Marketing Channel", df_raw['Marketing_Channel'].unique())
-
-# Apply Filters
-df = df_raw[(df_raw['Order_Date'].dt.date >= start_date) & (df_raw['Order_Date'].dt.date <= end_date)]
-if region_filter: df = df[df['Region'].isin(region_filter)]
-if category_filter: df = df[df['Category'].isin(category_filter)]
-if segment_filter: df = df[df['Customer_Segment'].isin(segment_filter)]
-if channel_filter: df = df[df['Marketing_Channel'].isin(channel_filter)]
-
-# Helper function for currency formatting
-def format_inr(value):
-    return f"₹{value:,.0f}"
-
-# ==========================================
-# HELPER COMPONENTS
-# ==========================================
-def render_kpi_card(title, value, is_currency=False, is_percent=False):
-    if is_currency: formatted_val = format_inr(value)
-    elif is_percent: formatted_val = f"{value:.1f}%"
-    else: formatted_val = f"{value:,.0f}"
-    
+def check_password():
+    if st.session_state['authenticated']: return True
     st.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-title">{title}</div>
-            <div class="kpi-value">{formatted_val}</div>
+        <div class="login-container">
+            <div style="margin-bottom: 10px;">{walmart_spark_svg}</div>
+            <h2 style="color: #333; margin-bottom: 5px;">Store Manager Login</h2>
+            <p style="color: #666; font-size: 16px; margin-bottom: 25px;">Enter your details to view store operational data.</p>
         </div>
     """, unsafe_allow_html=True)
-
-# ==========================================
-# PAGE 1: EXECUTIVE OVERVIEW
-# ==========================================
-if page == "Executive Overview":
-    st.title("Executive Overview")
     
-    # KPIs
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: render_kpi_card("Total Revenue", df['Revenue'].sum(), is_currency=True)
-    with c2: render_kpi_card("Total Profit", df['Profit'].sum(), is_currency=True)
-    with c3: render_kpi_card("Total Orders", df['Order_ID'].nunique())
-    with c4: render_kpi_card("Profit Margin", (df['Profit'].sum() / df['Revenue'].sum()) * 100 if df['Revenue'].sum() > 0 else 0, is_percent=True)
-    
-    c5, c6, c7, c8 = st.columns(4)
-    with c5: render_kpi_card("Avg Order Value", df['Revenue'].sum() / df['Order_ID'].nunique(), is_currency=True)
-    with c6: render_kpi_card("Return Rate", df['Returned_Num'].mean() * 100, is_percent=True)
-    with c7: render_kpi_card("Complaint Rate", df['Complaint_Num'].mean() * 100, is_percent=True)
-    with c8: render_kpi_card("Avg Rating", df['Customer_Rating'].mean() or 0)
-
-    # Charts
-    col1, col2 = st.columns(2)
-    with col1:
-        rev_time = df.groupby(df['Order_Date'].dt.to_period("M"))['Revenue'].sum().reset_index()
-        rev_time['Order_Date'] = rev_time['Order_Date'].dt.to_timestamp()
-        fig_rev = px.line(rev_time, x='Order_Date', y='Revenue', title="Revenue Over Time", color_discrete_sequence=['#4F46E5'])
-        st.plotly_chart(fig_rev, use_container_width=True)
-        
+    col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
-        prof_time = df.groupby(df['Order_Date'].dt.to_period("M"))['Profit'].sum().reset_index()
-        prof_time['Order_Date'] = prof_time['Order_Date'].dt.to_timestamp()
-        fig_prof = px.line(prof_time, x='Order_Date', y='Profit', title="Profit Over Time", color_discrete_sequence=['#10B981'])
-        st.plotly_chart(fig_prof, use_container_width=True)
+        with st.form("login_form"):
+            username = st.text_input("User Name")
+            password = st.text_input("Password", type="password")
+            if st.form_submit_button("Log In", use_container_width=True):
+                if username == "admin" and password == "manager123":
+                    st.session_state['authenticated'] = True
+                    st.rerun()
+                else: 
+                    st.error("Wrong user name or password.")
+    return False
 
-    col3, col4, col5 = st.columns(3)
-    with col3:
-        cat_rev = df.groupby('Category')['Revenue'].sum().reset_index()
-        st.plotly_chart(px.bar(cat_rev, x='Category', y='Revenue', title="Revenue by Category"), use_container_width=True)
-    with col4:
-        reg_rev = df.groupby('Region')['Revenue'].sum().reset_index()
-        st.plotly_chart(px.pie(reg_rev, names='Region', values='Revenue', title="Revenue by Region", hole=0.4), use_container_width=True)
-    with col5:
-        seg_ord = df.groupby('Customer_Segment')['Order_ID'].nunique().reset_index()
-        st.plotly_chart(px.bar(seg_ord, x='Customer_Segment', y='Order_ID', title="Orders by Segment"), use_container_width=True)
+if not check_password(): st.stop()
 
-# ==========================================
-# PAGE 2: DIAGNOSTIC ANALYSIS (The Core)
-# ==========================================
-elif page == "Diagnostic Analysis":
-    st.title("Diagnostic Analysis")
+# --- 3. STORE DATABASE ---
+PRODUCT_DB = {
+    'Bread': {'profit': 0.75, 'stock': 12}, 'Butter': {'profit': 1.10, 'stock': 85},
+    'Milk': {'profit': 0.50, 'stock': 150}, 'Diapers': {'profit': 6.00, 'stock': 200},
+    'Beer': {'profit': 4.50, 'stock': 300}, 'Wine': {'profit': 12.00, 'stock': 40},
+    'Cheese': {'profit': 4.00, 'stock': 90}, 'Eggs': {'profit': 0.80, 'stock': 60},
+    'Coffee': {'profit': 3.50, 'stock': 110}, 'Nutella': {'profit': 2.50, 'stock': 5},
+    'Snacks': {'profit': 2.00, 'stock': 500}, 'Greeting Cards': {'profit': 3.00, 'stock': 400}
+}
+
+# --- 4. DATA PATTERN ENGINE ---
+def find_sales_patterns(df, min_supp, total_txns):
+    transactions = df['Items'].astype(str).str.split(',').apply(lambda x: [i.strip() for i in x])
+    te = TransactionEncoder()
+    te_ary = te.fit(transactions).transform(transactions)
+    df_encoded = pd.DataFrame(te_ary, columns=te.columns_)
     
-    kpi_map = {
-        "Revenue": {"col": "Revenue", "agg": "sum", "type": "currency", "good": "up"},
-        "Profit": {"col": "Profit", "agg": "sum", "type": "currency", "good": "up"},
-        "Orders": {"col": "Order_ID", "agg": "nunique", "type": "number", "good": "up"},
-        "Return Rate": {"col": "Returned_Num", "agg": "mean", "type": "percent", "good": "down"},
-        "Complaint Rate": {"col": "Complaint_Num", "agg": "mean", "type": "percent", "good": "down"},
-        "Customer Rating": {"col": "Customer_Rating", "agg": "mean", "type": "number", "good": "up"}
-    }
+    freq_items = apriori(df_encoded, min_support=min_supp, use_colnames=True)
+    if freq_items.empty: return pd.DataFrame()
+        
+    rules = association_rules(freq_items, metric="confidence", min_threshold=0.1)
+    if rules.empty: return pd.DataFrame()
+    rules = rules[(rules['antecedents'].apply(len) == 1) & (rules['consequents'].apply(len) == 1)].copy()
+    if rules.empty: return pd.DataFrame()
+        
+    rules['Main Item'] = rules['antecedents'].apply(lambda x: list(x)[0])
+    rules['Add-on Item'] = rules['consequents'].apply(lambda x: list(x)[0])
+    rules['Profit Main'] = rules['Main Item'].apply(lambda x: PRODUCT_DB.get(x, {}).get('profit', 0))
+    rules['Profit Add-on'] = rules['Add-on Item'].apply(lambda x: PRODUCT_DB.get(x, {}).get('profit', 0))
     
-    selected_kpi = st.selectbox("Select KPI to Analyze:", list(kpi_map.keys()))
-    kpi_info = kpi_map[selected_kpi]
+    rules['Missed Sales Count'] = ((rules['support'] / rules['confidence']) * total_txns) * (1 - rules['confidence'])
+    rules['Money Left Behind'] = rules['Missed Sales Count'] * rules['Profit Add-on']
     
-    # Period Calculation (Current vs Previous half of selected date range)
-    total_days = (end_date - start_date).days
-    if total_days < 2:
-        st.warning("Please select a wider date range (at least 2 days) to enable comparative diagnostic analysis.")
-    else:
-        mid_date = start_date + timedelta(days=total_days//2)
-        
-        df_prev = df[df['Order_Date'].dt.date < mid_date]
-        df_curr = df[df['Order_Date'].dt.date >= mid_date]
-        
-        def calc_kpi(data, info):
-            if data.empty: return 0
-            if info['agg'] == 'sum': return data[info['col']].sum()
-            elif info['agg'] == 'mean': return data[info['col']].mean()
-            elif info['agg'] == 'nunique': return data[info['col']].nunique()
-            
-        val_curr = calc_kpi(df_curr, kpi_info)
-        val_prev = calc_kpi(df_prev, kpi_info)
-        
-        pct_change = ((val_curr - val_prev) / val_prev * 100) if val_prev != 0 else 0
-        
-        # Display Comparative KPI
-        c1, c2, c3 = st.columns(3)
-        fmt = format_inr if kpi_info['type'] == 'currency' else (lambda x: f"{x*100:.1f}%" if kpi_info['type']=='percent' else lambda x: f"{x:,.2f}")
-        
-        with c1: st.metric("Current Period", fmt(val_curr))
-        with c2: st.metric("Previous Period", fmt(val_prev))
-        with c3: st.metric("% Change", f"{pct_change:+.1f}%")
+    rules['Pair_ID'] = rules.apply(lambda row: frozenset([row['Main Item'], row['Add-on Item']]), axis=1)
+    return rules.sort_values(by='confidence', ascending=False).drop_duplicates(subset=['Pair_ID'], keep='first')
 
-        # Dimension Analysis
-        st.subheader("Diagnostic Drill-Down")
-        
-        # Tree Map for Contribution
-        if kpi_info['agg'] == 'sum':
-            fig_tree = px.treemap(df, path=[px.Constant("All"), 'Category', 'Region', 'Customer_Segment'], 
-                                  values=kpi_info['col'], title=f"{selected_kpi} Contribution Breakdown")
-            st.plotly_chart(fig_tree, use_container_width=True)
-        else:
-            st.info(f"Treemap drill-down is reserved for cumulative metrics (Revenue, Profit).")
+# --- 5. SYSTEM SETTINGS ---
+with st.expander("⚙️ System Settings (Upload Data & Log Out)"):
+    admin_col1, admin_col2, admin_col3 = st.columns(3)
+    with admin_col1: uploaded_file = st.file_uploader("Upload Store Receipts (CSV)", type="csv")
+    with admin_col2: sensitivity = st.slider("Pattern Finder Sensitivity", 0.01, 0.50, 0.05, 0.01)
+    with admin_col3: 
+        st.write(""); st.write("")
+        if st.button("Log Out of System", use_container_width=True):
+            st.session_state['authenticated'] = False
+            st.rerun()
 
-        # AI Diagnostic Insight Generation Engine
-        st.subheader("AI Diagnostic Insights")
-        
-        # Find best/worst contributors
-        def get_dim_change(dim):
-            curr = df_curr.groupby(dim).apply(lambda x: calc_kpi(x, kpi_info))
-            prev = df_prev.groupby(dim).apply(lambda x: calc_kpi(x, kpi_info))
-            diff = curr.sub(prev, fill_value=0)
-            return diff.idxmax(), diff.max(), diff.idxmin(), diff.min()
-            
-        best_cat, best_cat_val, worst_cat, worst_cat_val = get_dim_change('Category')
-        best_reg, best_reg_val, worst_reg, worst_reg_val = get_dim_change('Region')
-        
-        # Driver Correlations
-        numeric_cols = ['Discount_%', 'Delivery_Days', 'Marketing_Spend', 'Competitor_Price', 'Stock_Availability']
-        correlations = df[numeric_cols + [kpi_info['col']]].corr()[kpi_info['col']].drop(kpi_info['col'])
-        
-        # Formulate Insights
-        trend_word = "increased" if pct_change > 0 else "decreased"
-        
-        key_findings = f"• **{selected_kpi}** {trend_word} by **{abs(pct_change):.1f}%** in the current period compared to the previous period.<br>"
-        key_findings += f"• **{best_cat}** was the strongest positive contributor, whereas **{worst_cat}** saw the most significant negative pressure.<br>"
-        key_findings += f"• Regionally, **{best_reg}** outperformed, while **{worst_reg}** lagged behind."
+# --- 6. DATA INGESTION & FILTERING ---
+if uploaded_file is not None: 
+    df = pd.read_csv(uploaded_file)
+elif os.path.exists("transactions_2000.csv"): 
+    df = pd.read_csv("transactions_2000.csv")
+    if 'Payment_Type' not in df.columns:
+        random.seed(42)
+        df['Payment_Type'] = [random.choices(['Digital (Card/Phone)', 'Cash'], weights=[75, 25])[0] for _ in range(len(df))]
+else:
+    items = list(PRODUCT_DB.keys())
+    data = []
+    start_date = datetime.datetime.now() - datetime.timedelta(days=30)
+    for i in range(1, 1501):
+        date = start_date + datetime.timedelta(days=random.randint(0, 30))
+        basket = random.sample(items, random.randint(1, 4))
+        payment = random.choices(['Digital (Card/Phone)', 'Cash'], weights=[75, 25])[0]
+        data.append([f"TXN-{8000+i}", date.strftime("%Y-%m-%d"), ",".join(basket), payment])
+    df = pd.DataFrame(data, columns=['Transaction_ID', 'Date', 'Items', 'Payment_Type'])
 
-        drivers = ""
-        strong_corr = correlations[abs(correlations) > 0.15]
-        if not strong_corr.empty:
-            for feat, val in strong_corr.items():
-                direction = "higher" if val > 0 else "lower"
-                drivers += f"• There is a notable correlation ({val:.2f}) between **{feat}** and {selected_kpi}. {direction.title()} {feat} is associated with increased {selected_kpi}.<br>"
-        else:
-            drivers = "• No strong linear correlations detected between standard operational metrics (Delivery, Discount, etc.) and this KPI during the selected period."
+df['Items_List'] = df['Items'].astype(str).str.split(',').apply(lambda x: [i.strip() for i in x])
+df['Cart Size'] = df['Items_List'].apply(len)
+df['Cart Profit'] = df['Items_List'].apply(lambda x: sum([PRODUCT_DB.get(i, {}).get('profit', 0) for i in x]))
 
-        # Render AI Box
+# Top Banner Controls
+st.markdown(f"""
+<div class="main-banner">
+    <div>
+        <h1>{walmart_spark_svg} Store Manager Dashboard</h1>
+        <p>Simple tools to run a better, more profitable store.</p>
+    </div>
+    <div class="date-badge">Updated: {datetime.datetime.now().strftime("%B %d, %Y")}</div>
+</div>
+""", unsafe_allow_html=True)
+
+# Interactive Dynamic Filter
+f_col1, f_col2 = st.columns([1, 3])
+with f_col1:
+    time_filter = st.selectbox("📅 Select Time Window:", ["Last 30 Days", "Last 7 Days", "Yesterday"])
+
+if time_filter == "Yesterday" and 'Date' in df.columns:
+    df['Date_dt'] = pd.to_datetime(df['Date'])
+    max_date = df['Date_dt'].max()
+    df = df[df['Date_dt'] == max_date]
+elif time_filter == "Last 7 Days" and 'Date' in df.columns:
+    df['Date_dt'] = pd.to_datetime(df['Date'])
+    max_date = df['Date_dt'].max()
+    df = df[df['Date_dt'] >= (max_date - datetime.timedelta(days=7))]
+
+total_txns = len(df)
+all_items = [item for sublist in df['Items_List'] for item in sublist]
+avg_basket = round(df['Cart Size'].mean(), 1) if total_txns > 0 else 0
+avg_cart_profit = df['Cart Profit'].mean() if total_txns > 0 else 0
+best_seller = pd.Series(all_items).mode()[0] if all_items else "None"
+total_revenue = sum([PRODUCT_DB.get(i, {}).get('profit', 1.00) for i in all_items])
+
+busiest_day, traffic_df = "N/A", pd.DataFrame()
+if 'Date' in df.columns:
+    try:
+        df['Date_dt'] = pd.to_datetime(df['Date'])
+        busiest_day = df['Date_dt'].dt.day_name().mode()[0]
+        traffic_df = df['Date_dt'].dt.day_name().value_counts().reset_index()
+        traffic_df.columns = ['Day', 'Customers']
+        cats = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        traffic_df['Day'] = pd.Categorical(traffic_df['Day'], categories=cats, ordered=True)
+        traffic_df = traffic_df.sort_values('Day')
+        traffic_df['Registers Needed'] = (traffic_df['Customers'] / 40).apply(math.ceil)
+    except: pass
+
+rules_df = find_sales_patterns(df, sensitivity, total_txns)
+
+# --- 7. DAILY EXECUTION TASKS ---
+st.markdown("### 📋 Today's Top 3 Tasks")
+briefing_col1, briefing_col2, briefing_col3 = st.columns(3)
+
+with briefing_col1:
+    if not rules_df.empty:
+        low_stock = rules_df.copy()
+        low_stock['Stock'] = low_stock['Add-on Item'].apply(lambda x: PRODUCT_DB.get(x, {}).get('stock', 999))
+        low_stock = low_stock[low_stock['Stock'] < 30].sort_values('Money Left Behind', ascending=False)
+        if not low_stock.empty:
+            oos_item = low_stock.iloc[0]['Add-on Item']
+            st.markdown(f"""
+            <div class="briefing-card" style="background-color: #DC3545;">
+                <h4>1. Refill Empty Shelves</h4>
+                <p><strong>{oos_item}</strong> is almost sold out.</p>
+                <ol>
+                    <li>Send a worker to the back room.</li>
+                    <li>Bring all {oos_item} to the main aisle.</li>
+                </ol>
+                <div class="impact-metric">Prevents lost sales today</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else: 
+            st.markdown(f'<div class="briefing-card" style="background-color: #28A745;"><h4>1. Stock Levels Good</h4><p>Your best-selling items are fully stocked.</p></div>', unsafe_allow_html=True)
+
+with briefing_col2:
+    if not rules_df.empty:
+        top_bundle = rules_df.sort_values('Money Left Behind', ascending=False).iloc[0]
         st.markdown(f"""
-        <div class="insight-box">
-            <h4>🧠 Key Findings</h4>
-            <p>{key_findings}</p>
-            <h4>🔍 Possible Drivers</h4>
-            <p>{drivers}</p>
-            <h4>🎯 Recommended Actions</h4>
-            <p>• Investigate the root cause of the drop in {worst_cat} category within the {worst_reg} region.<br>
-            • Consider replicating the successful operational practices seen in {best_cat} and {best_reg}.<br>
-            • Monitor identified drivers closely to mitigate risks before they impact the bottom line.</p>
+        <div class="briefing-card" style="background-color: #0071CE;">
+            <h4>2. Improve Shelf Layout</h4>
+            <p>Put <strong>{top_bundle['Add-on Item']}</strong> next to <strong>{top_bundle['Main Item']}</strong>.</p>
+            <ol>
+                <li>Clear a display at the front of the store.</li>
+                <li>Place both items side-by-side.</li>
+            </ol>
+            <div class="impact-metric">Can add ${top_bundle['Money Left Behind']:,.0f} in profit</div>
         </div>
         """, unsafe_allow_html=True)
 
-# ==========================================
-# PAGE 3: CUSTOMER ANALYSIS
-# ==========================================
-elif page == "Customer Analysis":
-    st.title("Customer Analysis")
+with briefing_col3:
+    if not traffic_df.empty:
+        peak_day_row = traffic_df.loc[traffic_df['Customers'].idxmax()]
+        st.markdown(f"""
+        <div class="briefing-card" style="background-color: #FFC220; color: #222;">
+            <h4 style="color: #222;">3. Plan Cashier Shifts</h4>
+            <p>Your busiest day will be <strong>{peak_day_row['Day']}</strong>.</p>
+            <ol>
+                <li>Check the schedule for {peak_day_row['Day']}.</li>
+                <li>Make sure you have <strong>{peak_day_row['Registers Needed']} cashiers</strong> working.</li>
+            </ol>
+            <div class="impact-metric" style="color: #222;">Keeps checkout lines short</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+st.download_button("📥 Print Today's Tasks for Employees", data="Task,Instructions\nRefill Shelves,Check backroom for low items.\nUpdate Layout,Move related items next to each other.\nManage Registers,Ensure enough cashiers during busy times.", file_name="Daily_Tasks.csv", mime="text/csv")
+
+# Quick Numbers KPI Grid
+st.markdown(f"""
+<div class="kpi-grid">
+    <div class="kpi-card"><div class="kpi-title">Total Customers</div><div class="kpi-value">{total_txns:,}</div></div>
+    <div class="kpi-card"><div class="kpi-title">Avg Items Per Cart</div><div class="kpi-value">{avg_basket}</div></div>
+    <div class="kpi-card"><div class="kpi-title">Top Selling Item</div><div class="kpi-value">{best_seller}</div></div>
+    <div class="kpi-card"><div class="kpi-title">Total Profit Made</div><div class="kpi-value">${total_revenue:,.0f}</div></div>
+</div>
+""", unsafe_allow_html=True)
+
+# --- 8. STORE GROWTH DIAGNOSTIC CENTER ---
+st.markdown("### 📊 Store Growth Tools")
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "🛒 Cart Boosters", 
+    "🏷️ Traffic Builders", 
+    "💸 Missed Sales", 
+    "👥 Staffing Needs",
+    "💳 How People Pay",
+    "🧹 Clearance Finder"
+])
+
+with tab1:
+    st.markdown("**Cart Boosters:** When a customer buys one of these items, they usually end up spending a lot more money in the store overall. Put these items in your weekly flyers.")
+    halo_data = []
+    for item in PRODUCT_DB.keys():
+        contains_item = df[df['Items_List'].apply(lambda x: item in x)]
+        if not contains_item.empty:
+            halo_data.append({'Product': item, 'Avg_Cart_Profit': contains_item['Cart Profit'].mean()})
+            
+    halo_df = pd.DataFrame(halo_data).sort_values('Avg_Cart_Profit', ascending=False)
+    if not halo_df.empty:
+        bar_chart = alt.Chart(halo_df).mark_bar(color='#0071CE', cornerRadiusEnd=4, size=25).encode(
+            x=alt.X('Avg_Cart_Profit:Q', title='Average Profit of Entire Cart ($)', axis=alt.Axis(format='$,.2f')),
+            y=alt.Y('Product:N', sort='-x', title=''),
+            tooltip=['Product', 'Avg_Cart_Profit']
+        )
+        rule = alt.Chart(pd.DataFrame({'baseline': [avg_cart_profit]})).mark_rule(color='#DC3545', strokeWidth=2, strokeDash=[5, 5]).encode(x='baseline:Q')
+        st.altair_chart(apply_chart_font(bar_chart + rule).properties(height=350), use_container_width=True)
+
+with tab2:
+    st.markdown("**Traffic Builders:** These are cheap items (Main Item) that get people into the store to buy expensive items (Add-on Item). *Tip: Put the cheap items on sale.*")
+    if not rules_df.empty:
+        ll_df = rules_df[(rules_df['Profit Main'] < 1.50) & (rules_df['Profit Add-on'] > 3.00)].copy()
+        if not ll_df.empty:
+            ll_chart = alt.Chart(ll_df).mark_circle(size=400, opacity=0.9).encode(
+                x=alt.X('confidence:Q', title='Chance of Buying the Expensive Item', axis=alt.Axis(format='%')),
+                y=alt.Y('Profit Add-on:Q', title='Profit Made from Expensive Item ($)', axis=alt.Axis(format='$,.2f')),
+                color=alt.Color('Main Item:N', title='Cheap Item (Put on sale)'),
+                tooltip=['Main Item', 'Add-on Item', 'confidence']
+            )
+            st.altair_chart(apply_chart_font(ll_chart).properties(height=350), use_container_width=True)
+        else: st.info("No patterns found. Adjust settings in the Configuration menu.")
+
+with tab3:
+    st.markdown("**Missed Sales (Bad Layout):** This shows how much money you are losing because related items are too far apart in the store.")
+    if not rules_df.empty:
+        rules_df['Item Pair'] = rules_df['Main Item'] + " + " + rules_df['Add-on Item']
+        margin_chart = alt.Chart(rules_df.sort_values('Money Left Behind', ascending=False).head(6)).mark_bar(color='#28A745', cornerRadiusEnd=4, height=30).encode(
+            x=alt.X('Money Left Behind:Q', title='Lost Profit ($)', axis=alt.Axis(format='$,.0f')),
+            y=alt.Y('Item Pair:N', sort='-x', title=''),
+            tooltip=['Item Pair', 'Money Left Behind']
+        )
+        st.altair_chart(apply_chart_font(margin_chart).properties(height=350), use_container_width=True)
+
+with tab4:
+    st.markdown("**Staffing Needs:** Shows how many customers visit each day and how many cashiers you need to schedule.")
+    if not traffic_df.empty:
+        base = alt.Chart(traffic_df).encode(x=alt.X('Day:N', sort=cats, title=''))
+        bar = base.mark_bar(color='#E9ECEF', cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(y=alt.Y('Customers:Q', title='Number of Customers'))
+        line = base.mark_line(color='#0071CE', strokeWidth=4).encode(y=alt.Y('Registers Needed:Q', title='Cashiers Needed'))
+        points = base.mark_circle(color='#FFC220', size=150).encode(y=alt.Y('Registers Needed:Q'), tooltip=['Day', 'Customers', 'Registers Needed'])
+        st.altair_chart(apply_chart_font(alt.layer(bar, line + points).resolve_scale(y='independent')).properties(height=350), use_container_width=True)
+
+with tab5:
+    st.markdown("**How Customers Pay:** Breakdown of cash vs. digital checkout methods.")
+    if 'Payment_Type' in df.columns:
+        pay_df = df['Payment_Type'].value_counts().reset_index()
+        pay_df.columns = ['Payment Type', 'Count']
+        donut = alt.Chart(pay_df).mark_arc(innerRadius=80, stroke='#fff', strokeWidth=2).encode(
+            theta='Count:Q',
+            color=alt.Color('Payment Type:N', scale=alt.Scale(range=['#0071CE', '#FFC220']), legend=alt.Legend(title="", orient="right")),
+            tooltip=['Payment Type', 'Count']
+        )
+        st.altair_chart(apply_chart_font(donut).properties(height=350), use_container_width=True)
+
+with tab6:
+    st.markdown("**Clearance Finder:** Items sitting in inventory with low sales velocity. Includes suggested markdown prices to recover cash.")
+    item_counts = pd.Series(all_items).value_counts().reset_index()
+    item_counts.columns = ['Item', 'Times Bought']
+    item_counts['Current Stock'] = item_counts['Item'].apply(lambda x: PRODUCT_DB.get(x, {}).get('stock', 0))
+    item_counts['Unit Profit ($)'] = item_counts['Item'].apply(lambda x: PRODUCT_DB.get(x, {}).get('profit', 0))
     
-    col1, col2 = st.columns(2)
-    with col1:
-        st.plotly_chart(px.pie(df, names='Customer_Segment', values='Revenue', title="Revenue by Segment", hole=0.3), use_container_width=True)
-    with col2:
-        st.plotly_chart(px.bar(df.groupby('Age_Group')['Order_ID'].nunique().reset_index(), x='Age_Group', y='Order_ID', title="Orders by Age Group"), use_container_width=True)
+    # Identify items with high stock (>100) and low purchases (<5% of trips)
+    dead_stock = item_counts[(item_counts['Current Stock'] > 100) & (item_counts['Times Bought'] < (total_txns * 0.05))].copy()
+    
+    if not dead_stock.empty:
+        dead_stock['Suggested Action'] = "25% Clearance Discount"
+        dead_stock['Cash Recovered ($)'] = dead_stock['Current Stock'] * dead_stock['Unit Profit ($)'] * 0.75
         
-    col3, col4 = st.columns(2)
-    with col3:
-        ret_seg = df.groupby('Customer_Segment')['Returned_Num'].mean().reset_index()
-        st.plotly_chart(px.bar(ret_seg, x='Customer_Segment', y='Returned_Num', title="Return Rate by Segment", color='Returned_Num', color_continuous_scale='Reds'), use_container_width=True)
-    with col4:
-        comp_seg = df.groupby('Customer_Segment')['Complaint_Num'].mean().reset_index()
-        st.plotly_chart(px.bar(comp_seg, x='Customer_Segment', y='Complaint_Num', title="Complaint Rate by Segment", color='Complaint_Num', color_continuous_scale='Oranges'), use_container_width=True)
-
-# ==========================================
-# PAGE 4: PRODUCT & OPERATIONS
-# ==========================================
-elif page == "Product & Operations":
-    st.title("Product & Operations")
-    
-    # Top/Bottom Products
-    st.subheader("Product Performance")
-    prod_perf = df.groupby('Product').agg({'Revenue': 'sum', 'Profit': 'sum', 'Returned_Num':'mean'}).reset_index()
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        top_10 = prod_perf.nlargest(10, 'Profit')
-        st.plotly_chart(px.bar(top_10, x='Profit', y='Product', orientation='h', title="Top 10 Products (Profit)"), use_container_width=True)
-    with col2:
-        bottom_10 = prod_perf.nsmallest(10, 'Profit')
-        st.plotly_chart(px.bar(bottom_10, x='Profit', y='Product', orientation='h', title="Bottom 10 Products (Profit)", color_discrete_sequence=['#EF4444']), use_container_width=True)
-
-    # Operations scatter
-    st.subheader("Operational Drivers")
-    c3, c4 = st.columns(2)
-    with c3:
-        st.plotly_chart(px.scatter(df, x='Discount_%', y='Profit', color='Category', title="Discount vs Profit", trendline="ols"), use_container_width=True)
-    with c4:
-        st.plotly_chart(px.scatter(df, x='Delivery_Days', y='Customer_Rating', color='Region', title="Delivery Days vs Rating", trendline="ols"), use_container_width=True)
-
-# ==========================================
-# PAGE 5: MARKETING ANALYSIS
-# ==========================================
-elif page == "Marketing Analysis":
-    st.title("Marketing Analysis")
-    
-    mkt_summary = df.groupby('Marketing_Channel').agg(
-        Revenue=('Revenue', 'sum'),
-        Spend=('Marketing_Spend', 'sum'),
-        Orders=('Order_ID', 'nunique')
-    ).reset_index()
-    mkt_summary['ROI'] = (mkt_summary['Revenue'] - mkt_summary['Spend']) / mkt_summary['Spend']
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.plotly_chart(px.bar(mkt_summary, x='Marketing_Channel', y=['Revenue', 'Spend'], barmode='group', title="Revenue vs Spend by Channel"), use_container_width=True)
-    with col2:
-        st.plotly_chart(px.bar(mkt_summary, x='Marketing_Channel', y='ROI', title="ROI by Channel", color='ROI', color_continuous_scale='RdYlGn'), use_container_width=True)
-        
-    st.subheader("Campaign Performance")
-    camp_summary = df.groupby('Campaign').agg({'Revenue':'sum', 'Profit':'sum', 'Order_ID':'nunique'}).reset_index()
-    st.dataframe(camp_summary.style.format({'Revenue': '₹{:,.0f}', 'Profit': '₹{:,.0f}'}), use_container_width=True)
+        st.dataframe(
+            dead_stock[['Item', 'Current Stock', 'Times Bought', 'Suggested Action', 'Cash Recovered ($)']], 
+            hide_index=True, 
+            use_container_width=True
+        )
+    else:
+        st.success("Great news! You don't have any slow-moving inventory taking up shelf space right now.")
