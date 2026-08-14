@@ -8,7 +8,7 @@ import random
 from mlxtend.preprocessing import TransactionEncoder
 from mlxtend.frequent_patterns import apriori, association_rules
 
-# --- 1. CONFIGURATION & TIMES NEW ROMAN STYLING ---
+# --- 1. CONFIGURATION & STYLING ---
 st.set_page_config(page_title="Store Manager Dashboard", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
@@ -24,16 +24,18 @@ st.markdown("""
     .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 98% !important; }
     [data-testid="collapsedControl"] { display: none !important; } 
 
-    /* PRECISE TIMES NEW ROMAN TARGETING (Prevents breaking icons) */
-    .stApp { background-color: #f4f6f9; color: #222; font-family: 'Times New Roman', Times, serif; }
-    h1, h2, h3, h4, h5, h6, p, li, label, .stMarkdown div { 
+    /* SAFE TIMES NEW ROMAN TARGETING (Does not break inputs/icons) */
+    p, h1, h2, h3, h4, h5, h6, li, label, .stMarkdown { 
         font-family: 'Times New Roman', Times, serif !important; 
     }
+    
+    body { background-color: #f4f6f9; color: #222; }
     
     /* Login Box */
     .login-container { 
         max-width: 420px; margin: 10vh auto; padding: 40px; background: white; 
         border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); border: 1px solid #e0e0e0; text-align: center; 
+        font-family: 'Times New Roman', Times, serif;
     }
     
     /* Top Banner */
@@ -41,13 +43,17 @@ st.markdown("""
         background-color: #0071CE; padding: 20px 30px; border-radius: 8px; margin-bottom: 20px; 
         color: white; box-shadow: 0 4px 10px rgba(0, 113, 206, 0.15);
         display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;
+        font-family: 'Times New Roman', Times, serif;
     }
     .main-banner h1 { margin: 0; font-size: 32px; font-weight: normal; display: flex; align-items: center; gap: 15px; }
     .main-banner p { color: #FFC220; margin: 5px 0 0 0; font-size: 16px; }
     .date-badge { background-color: #FFC220; color: #004c8c; padding: 6px 20px; border-radius: 30px; font-weight: bold; font-size: 15px; }
     
     /* Daily Tasks Cards */
-    .briefing-card { padding: 20px; border-radius: 8px; color: white; box-shadow: 0 4px 10px rgba(0,0,0,0.08); display: flex; flex-direction: column; }
+    .briefing-card { 
+        padding: 20px; border-radius: 8px; color: white; box-shadow: 0 4px 10px rgba(0,0,0,0.08); 
+        display: flex; flex-direction: column; font-family: 'Times New Roman', Times, serif;
+    }
     .briefing-card h4 { margin: 0 0 10px 0; font-size: 18px; border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 8px; font-weight: bold; }
     .briefing-card p { margin: 0; font-size: 16px; line-height: 1.4; }
     .briefing-card ol { margin: 12px 0; padding-left: 20px; font-size: 15px; background: rgba(255,255,255,0.15); padding: 12px 12px 12px 28px; border-radius: 4px; }
@@ -55,13 +61,16 @@ st.markdown("""
     
     /* KPI Cards */
     .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px; }
-    .kpi-card { background-color: #ffffff; border-radius: 8px; padding: 20px 15px; text-align: center; box-shadow: 0 2px 6px rgba(0,0,0,0.03); border: 1px solid #e0e0e0; }
+    .kpi-card { 
+        background-color: #ffffff; border-radius: 8px; padding: 20px 15px; text-align: center; 
+        box-shadow: 0 2px 6px rgba(0,0,0,0.03); border: 1px solid #e0e0e0; font-family: 'Times New Roman', Times, serif;
+    }
     .kpi-title { color: #555; font-size: 14px; text-transform: uppercase; margin-bottom: 8px; font-weight: bold; }
     .kpi-value { color: #0071CE; font-size: 32px; font-weight: bold; }
     
     /* Tabs */
     .stTabs [data-baseweb="tab-list"] { gap: 24px; border-bottom: 1px solid #ccc; }
-    .stTabs [data-baseweb="tab"] { height: 50px; font-size: 18px; color: #333; }
+    .stTabs [data-baseweb="tab"] { height: 50px; font-size: 18px; color: #333; font-family: 'Times New Roman', Times, serif;}
 </style>
 """, unsafe_allow_html=True)
 
